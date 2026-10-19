@@ -1,0 +1,6 @@
+{
+  "name": "usage-limits",
+  "version": "0.1.0",
+  "description": "Band above the prompt showing 5-hour session and weekly usage limits",
+  "types": "./types/index.d.ts"
+}

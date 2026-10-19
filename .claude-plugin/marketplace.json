@@ -1,0 +1,5 @@
+{
+  "name": "claude-usage-limits",
+  "owner": { "name": "MaurycyBartczak" },
+  "plugins": [{ "name": "usage-limits", "source": "./" }]
+}
