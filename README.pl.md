@@ -63,5 +63,3 @@ claude plugin install usage-limits --marketplace MaurycyBartczak/claude-usage-li
 ```
 
 W aplikacji desktopowej (gdzie `/plugin` nie działa): kliknij + obok pola promptu, potem Plugins, Add marketplace z `MaurycyBartczak/claude-usage-limits`, potem Add plugin.
-
-Repozytorium jest prywatne: instalacja działa tylko dla osób z dostępem do niego na GitHubie, których komputer ma już zapisane dane logowania git do github.com (klucz SSH albo `gh auth login`, a potem `gh auth setup-git`). Instalator nie pyta o hasło.
