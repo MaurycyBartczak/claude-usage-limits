@@ -18,6 +18,22 @@ Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym
 - Dźwięk przy 90% (Windows: PowerShell, macOS: afplay).
 - Narzędzie `usage_limits` dla agenta: Claude może sam sprawdzić Twoje limity, gdy o nie zapytasz albo przed dużą robotą.
 
+## Historia między sesjami i /limity
+
+Mod zapisuje zużycie we własnym magazynie, sumując wszystkie sesje:
+
+- Wykres spalania i prognoza limitu 5h ciągną się dalej w nowej sesji zamiast startować od zera, a pasek pokazuje dzisiejsze tokeny.
+- `/limity` otwiera (a drugie `/limity` chowa) panel z ostatnimi 14 dniami:
+
+```
+Ostatnie 14 dni
+nd  18.10 ━━━━━━━━━━━━━━━━━━━━──────────  120k 5h  80% 7d  30% $3.50
+pon 19.10 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  412k 5h  87% 7d  34% $7.11
+7 dni: 532k tok · śr. 266k/dzień aktywny · $10.61
+```
+
+Każdy dzień pokazuje zużyte tokeny, najwyższy odczyt limitu 5h i tygodniowego oraz koszt. Dni liczą się według lokalnego czasu komputera. Wyłączysz to opcją **Historia między sesjami** w `/config`.
+
 ## Panel zadań /zadania
 
 `/zadania` otwiera (a drugie `/zadania` chowa) panel z zadaniami z planu:

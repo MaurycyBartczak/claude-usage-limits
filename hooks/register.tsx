@@ -7,11 +7,24 @@ import type { Alert } from './alerts'
 import { STRINGS, languageOf } from './i18n'
 import type { Strings } from './i18n'
 import { registerTasks, startTasks } from './tasks'
+import {
+  addCost,
+  addLimits,
+  addTurn,
+  loadHistory,
+  registerHistory,
+  startHistory,
+  storeBurn,
+  storeDays,
+  storeFiveHour,
+  todayTokens,
+} from './history'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
 const fiveHour = atom({ plugin: 'usage-limits', key: 'fiveHour' } as const, [])
 const costUsd = atom({ plugin: 'usage-limits', key: 'costUsd' } as const, null)
+const days = atom({ plugin: 'usage-limits', key: 'days' } as const, [])
 
 const ORDER = ['five_hour', 'seven_day']
 
@@ -34,6 +47,7 @@ type Settings = {
   thresholdToasts: boolean
   sound90: boolean
   resetToast: boolean
+  history: boolean
   t: Strings
 }
 
@@ -50,6 +64,7 @@ function settingsOf(options: PluginOptions): Settings {
     thresholdToasts: on('thresholdToasts'),
     sound90: on('sound90'),
     resetToast: on('resetToast'),
+    history: on('history'),
     t: STRINGS[languageOf(options.language)],
   }
 }
@@ -175,17 +190,22 @@ async function chime($: EngineInterface): Promise<void> {
   }
 }
 
-// Keeps the windows, and a trail of the 5h reading for the forecast.
-async function remember($: EngineInterface, limits: LimitWindow[]): Promise<void> {
+// Keeps the windows, and a trail of the 5h reading for the forecast; with
+// history on, the trail and the day's highest readings go to the store too.
+async function remember($: EngineInterface, limits: LimitWindow[], isHistory: boolean): Promise<void> {
   await update($, windows, () => limits)
+  const at = await $.clock.now()
   const five = limits.find(w => w.kind === 'five_hour')
   if (five) {
-    const at = await $.clock.now()
     await update($, fiveHour, all => {
       // a drop means the window reset: start the trail over
       const kept = all.filter(s => at - s.at <= RATE_WINDOW_MS && s.percent <= five.percentUsed)
       return [...kept, { at, percent: five.percentUsed }].slice(-MAX_SAMPLES)
     })
+  }
+  if (isHistory) {
+    if (five) await storeFiveHour($, await read($, fiveHour))
+    await storeDays($, all => addLimits(all, at, limits))
   }
 }
 
@@ -218,10 +238,18 @@ export const register: Register = (on, options) => {
   let pendingAgentTokens = 0
 
   registerTasks(on, settings.t)
+  registerHistory(on, settings.t, settings.history)
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     await startTasks($, settings.t)
+    if (settings.history) {
+      await startHistory($, settings.t)
+      const stored = await loadHistory($)
+      // a hot reload keeps the session's own figures; a new session takes the store's
+      if ((await read($, burn)).length === 0) await update($, burn, () => stored.burn)
+      if ((await read($, fiveHour)).length === 0) await update($, fiveHour, () => stored.fiveHour)
+    }
     await $.tool.register({
       name: 'usage_limits',
       description:
@@ -230,7 +258,7 @@ export const register: Register = (on, options) => {
     })
     const { rateLimits, cost } = await $.session.usage()
     if (rateLimits.length > 0) {
-      await remember($, rateLimits)
+      await remember($, rateLimits, settings.history)
     }
     if (cost) {
       await update($, costUsd, () => cost.usd)
@@ -241,12 +269,17 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
       const before = await read($, windows)
-      await remember($, e.rateLimits)
+      await remember($, e.rateLimits, settings.history)
       await announce($, settings, before, e.rateLimits)
     }
     if (e.changed.includes('cost') && e.cost) {
       const usd = e.cost.usd
+      const before = await read($, costUsd)
       await update($, costUsd, () => usd)
+      if (settings.history && before !== null && usd > before) {
+        const at = await $.clock.now()
+        await storeDays($, all => addCost(all, at, usd - before))
+      }
     }
     return next(e)
   })
@@ -265,7 +298,13 @@ export const register: Register = (on, options) => {
       } else {
         const total = spent(e.usage) + pendingAgentTokens
         pendingAgentTokens = 0
-        await update($, burn, all => [...all, total].slice(-MAX_SAMPLES))
+        // with history, the store's chart, so every session's turns line up in it
+        const chart = settings.history ? await storeBurn($, total) : null
+        await update($, burn, all => chart ?? [...all, total].slice(-MAX_SAMPLES))
+        if (settings.history) {
+          const at = await $.clock.now()
+          await storeDays($, all => addTurn(all, at, total))
+        }
       }
     }
     return next(e)
@@ -293,6 +332,7 @@ export const register: Register = (on, options) => {
     const pace = settings.showForecast ? forecast(t, await read($, fiveHour), now, five?.resetsAt) : ''
     const cost = settings.showCost && usd !== null ? dollars(usd) : ''
     const lastTurn = samples[samples.length - 1]
+    const today = settings.history ? todayTokens(await read($, days), now) : 0
     const average = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0
     const hasBars = settings.showFiveHour || settings.showWeekly
     const hasInfoRow = settings.showBurn || pace !== '' || cost !== ''
@@ -305,6 +345,7 @@ export const register: Register = (on, options) => {
     const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
     const details = [
       settings.showBurn && lastTurn !== undefined ? t.lastTurn(tokens(lastTurn), tokens(Math.round(average))) : '',
+      settings.showBurn && settings.history && today > 0 ? t.history.today(tokens(today)) : '',
       pace,
       cost ? t.cost(cost) : '',
     ].filter(Boolean)

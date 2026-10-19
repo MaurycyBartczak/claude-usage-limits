@@ -33,6 +33,20 @@ export type Strings = {
     current: string
     empty: string[]
   }
+  // the /limity history pane
+  history: {
+    paneTitle: string
+    commandDescription: string
+    opened: string
+    waiting: string
+    closed: string
+    disabled: string
+    title: (days: number) => string
+    empty: string
+    weekdays: string[]
+    weekTotal: (tokens: string, perDay: string, cost: string) => string
+    today: (tokens: string) => string
+  }
 }
 
 export const STRINGS: Record<Language, Strings> = {
@@ -70,6 +84,19 @@ export const STRINGS: Record<Language, Strings> = {
         'Plik planu wczytasz przez /zadania ścieżka/do/planu.md',
       ],
     },
+    history: {
+      paneTitle: 'Historia',
+      commandDescription: 'Panel z historią zużycia z ostatnich 14 dni',
+      opened: 'Panel historii otwarty.',
+      waiting: 'Panel historii czeka na miejsce w terminalu.',
+      closed: 'Panel historii schowany.',
+      disabled: 'Historia jest wyłączona w /config.',
+      title: n => `Ostatnie ${n} dni`,
+      empty: 'Brak historii. Pojawi się po pierwszych turach.',
+      weekdays: ['nd', 'pon', 'wt', 'śr', 'czw', 'pt', 'sob'],
+      weekTotal: (tok, perDay, cost) => `7 dni: ${tok} tok · śr. ${perDay}/dzień aktywny · ${cost}`,
+      today: tok => `dziś ${tok}`,
+    },
   },
   en: {
     labels: { five_hour: '5h limit', seven_day: 'Weekly' },
@@ -104,6 +131,19 @@ export const STRINGS: Record<Language, Strings> = {
         'They appear when Claude breaks the work into tasks or you approve a plan.',
         'Load a plan file with /zadania path/to/plan.md',
       ],
+    },
+    history: {
+      paneTitle: 'History',
+      commandDescription: 'Pane with usage history from the last 14 days',
+      opened: 'History pane opened.',
+      waiting: 'History pane is waiting for room in the terminal.',
+      closed: 'History pane hidden.',
+      disabled: 'History is switched off in /config.',
+      title: n => `Last ${n} days`,
+      empty: 'No history yet. It appears after the first turns.',
+      weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      weekTotal: (tok, perDay, cost) => `7 days: ${tok} tok · avg ${perDay}/active day · ${cost}`,
+      today: tok => `today ${tok}`,
     },
   },
 }

@@ -18,6 +18,22 @@ Burn     ▁▂▅▃█▂▁▄▆⠹  last 8.1k tok · avg 5.3k · at this pa
 - A sound at 90% (Windows: PowerShell, macOS: afplay).
 - A `usage_limits` tool for the agent: Claude can check your limits itself when you ask about them or before heavy work.
 
+## History across sessions and /limity
+
+The mod keeps usage in its own store, summed over every session:
+
+- The burn chart and the 5-hour forecast carry on in a new session instead of starting empty, and the band shows today's tokens.
+- `/limity` opens (and a second `/limity` hides) a pane with the last 14 days:
+
+```
+Last 14 days
+Sun 18.10 ━━━━━━━━━━━━━━━━━━━━──────────  120k 5h  80% 7d  30% $3.50
+Mon 19.10 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  412k 5h  87% 7d  34% $7.11
+7 days: 532k tok · avg 266k/active day · $10.61
+```
+
+Each day shows the tokens spent, the highest 5-hour and weekly readings, and the cost. Days follow the machine's local time. Switch it off with **History across sessions** in `/config`.
+
 ## The /zadania task pane
 
 `/zadania` opens (and a second `/zadania` hides) a pane with the plan's tasks:
