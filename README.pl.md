@@ -13,7 +13,7 @@ Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym
 - Animacje: płynne wypełnianie, przebiegający połysk, pulsowanie powyżej 90%.
 - Wykres tokenów zużytych w każdej turze (z subagentami), animowany w trakcie pracy modelu.
 - Prognoza, kiedy przy obecnym tempie limit 5h dojdzie do 100%.
-- Odświeżanie na bieżąco: odczyt po każdym zapytaniu tury, współdzielony między sesjami; w trakcie pracy Claude'a przyciemniony odcinek `╍` i `~72%` pokazują szacowane zużycie do następnego odczytu (wyuczone z Twoich odczytów, więc to tylko szacunek).
+- Odświeżanie na bieżąco: odczyt po każdym zapytaniu tury, współdzielony między sesjami; w trakcie pracy Claude'a przyciemniony odcinek `╍` i `~72%` pokazują szacowane zużycie do następnego odczytu (wyuczone z Twoich odczytów, więc to tylko szacunek). Subagenci sami nie odświeżają odczytu, więc w czasie ich pracy szacunek idzie za kosztem sesji, który liczy także ich zapytania.
 - Koszt sesji w $ (równowartość cen API).
 - Powiadomienia przy przekroczeniu 50%, 75% i 90% oraz po resecie limitu.
 - Dźwięk przy 90% (Windows: PowerShell, macOS: afplay).

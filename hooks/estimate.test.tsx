@@ -77,6 +77,24 @@ test('the band draws a live estimate once a reading has taught the rate', async 
   await after.unmount()
 })
 
+test("the cost a subagent's requests add moves the estimate with no new reading", async ($, on) => {
+  const engine = session(on)
+  await $.session.start({ source: 'startup', cwd: '.' } as never)
+  const measure = (own: LimitWindow[], usd: number) =>
+    $.session.measure({ context: { window: 200000 } as never, rateLimits: own, cost: { usd }, changed: ['cost', 'rateLimits'] })
+
+  // $0.50 moved the 5h window 5 points: $0.10 a percent
+  await measure(five(40), 0)
+  await measure(five(45), 0.5)
+  // subagents spend $0.30 more; the main thread hears no new reading
+  engine.own = five(45)
+  await $.session.measure({ context: { window: 200000 } as never, rateLimits: five(45), cost: { usd: 0.8 }, changed: ['cost'] })
+
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ type: 'Text', text: /~48%/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('without the switch no estimate shows', { options: { estimate: false } }, async ($, on) => {
   const engine = session(on)
   await $.session.start({ source: 'startup', cwd: '.' } as never)

@@ -44,6 +44,9 @@ declare module 'claude-code' {
       readingAt: number | null
       calib: Record<string, number>
       liveTokens: number
+      calibUsd: Record<string, number>
+      liveUsd: number
+      liveStream: number
     }
   }
 }

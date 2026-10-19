@@ -20,7 +20,7 @@ import {
   todayTokens,
 } from './history'
 import { readShared, readingKey, shareReading, shouldAdopt } from './share'
-import { calibrate, estimateOf, tokensOfText } from './estimate'
+import { MIN_USD, calibrate, estimateFrom, tokensOfText } from './estimate'
 import type { Calibration } from './estimate'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
@@ -31,6 +31,9 @@ const days = atom({ plugin: 'usage-limits', key: 'days' } as const, [])
 const readingAt = atom({ plugin: 'usage-limits', key: 'readingAt' } as const, null)
 const calib = atom({ plugin: 'usage-limits', key: 'calib' } as const, {})
 const liveTokens = atom({ plugin: 'usage-limits', key: 'liveTokens' } as const, 0)
+const calibUsd = atom({ plugin: 'usage-limits', key: 'calibUsd' } as const, {})
+const liveUsd = atom({ plugin: 'usage-limits', key: 'liveUsd' } as const, 0)
+const liveStream = atom({ plugin: 'usage-limits', key: 'liveStream' } as const, 0)
 
 const ORDER = ['five_hour', 'seven_day']
 
@@ -43,7 +46,7 @@ const GAP = 3
 const MAX_BAR = 30
 const MAX_SAMPLES = 40
 const RATE_WINDOW_MS = 60 * 60_000
-const SYNC_MS = 15_000
+const SYNC_MS = 5_000
 // streamed tokens between two redraws of the estimate
 const LIVE_STEP = 150
 
@@ -250,11 +253,16 @@ let lastOwnWindows: LimitWindow[] = []
 // the one streaming now by its characters.
 let sinceReading = 0
 let streamed = 0
+// The session's cost at its last own reading: what it grew by since, any
+// subagent's requests included, is what the reading does not count yet.
+let costAtReading: number | null = null
 
 async function loadCalibration($: EngineInterface): Promise<void> {
   try {
     const stored = (await $.store.get('calib')) as Calibration | undefined
     if (stored) await update($, calib, () => stored)
+    const storedUsd = (await $.store.get('calibUsd')) as Calibration | undefined
+    if (storedUsd) await update($, calibUsd, () => storedUsd)
   } catch {
     // learn it afresh
   }
@@ -262,24 +270,47 @@ async function loadCalibration($: EngineInterface): Promise<void> {
 
 async function showLive($: EngineInterface): Promise<void> {
   const live = sinceReading + streamed
+  const stream = streamed
+  const cost = await read($, costUsd)
+  const usd = cost !== null && costAtReading !== null ? Math.max(cost - costAtReading, 0) : 0
   await update($, liveTokens, () => live)
+  await update($, liveStream, () => stream)
+  await update($, liveUsd, () => usd)
+}
+
+// A new cost from the engine: the live estimate grows with it.
+async function takeCost($: EngineInterface, settings: Settings, usd: number): Promise<void> {
+  const before = await read($, costUsd)
+  if (before === usd) return
+  await update($, costUsd, () => usd)
+  if (settings.history && before !== null && usd > before) {
+    const at = await $.clock.now()
+    await storeDays($, all => addCost(all, at, usd - before))
+  }
+  await showLive($)
 }
 
 async function takeOwn($: EngineInterface, settings: Settings, limits: LimitWindow[]): Promise<void> {
   lastOwn = readingKey(limits)
   const before = await read($, windows)
   // what the spent tokens moved the windows by teaches the estimate
+  const cost = await read($, costUsd)
   if (lastOwnWindows.length > 0) {
     const learned = calibrate(await read($, calib), lastOwnWindows, limits, sinceReading)
     await update($, calib, () => learned)
+    const spentUsd = cost !== null && costAtReading !== null ? cost - costAtReading : 0
+    const learnedUsd = calibrate(await read($, calibUsd), lastOwnWindows, limits, spentUsd, MIN_USD)
+    await update($, calibUsd, () => learnedUsd)
     try {
       await $.store.set('calib', learned)
+      await $.store.set('calibUsd', learnedUsd)
     } catch {
       // the session keeps what it learned
     }
   }
   lastOwnWindows = limits
   sinceReading = 0
+  costAtReading = cost
   await showLive($)
   await remember($, limits, settings.history)
   await announce($, settings, before, limits)
@@ -290,7 +321,10 @@ async function takeOwn($: EngineInterface, settings: Settings, limits: LimitWind
 // the session that saw it first raised it.
 async function syncLimits($: EngineInterface, settings: Settings): Promise<void> {
   try {
-    const own = (await $.session.usage()).rateLimits
+    const usage = await $.session.usage()
+    // the cost grows with a subagent's requests even when no reading comes
+    if (usage.cost) await takeCost($, settings, usage.cost.usd)
+    const own = usage.rateLimits
     if (own.length > 0 && readingKey(own) !== lastOwn) {
       await takeOwn($, settings, own)
       return
@@ -300,6 +334,7 @@ async function syncLimits($: EngineInterface, settings: Settings): Promise<void>
       await remember($, shared.windows, settings.history, shared.at)
       // a newer reading may count what we spent: start the estimate over
       sinceReading = 0
+      costAtReading = await read($, costUsd)
       await showLive($)
     }
   } catch {
@@ -339,13 +374,14 @@ export const register: Register = (on, options) => {
     })
     await loadCalibration($)
     const { rateLimits, cost } = await $.session.usage()
+    if (cost) {
+      await update($, costUsd, () => cost.usd)
+    }
     if (rateLimits.length > 0) {
       lastOwn = readingKey(rateLimits)
       lastOwnWindows = rateLimits
+      costAtReading = cost?.usd ?? 0
       await remember($, rateLimits, settings.history)
-    }
-    if (cost) {
-      await update($, costUsd, () => cost.usd)
     }
     // a fresher reading another session already shared
     await syncLimits($, settings)
@@ -356,17 +392,12 @@ export const register: Register = (on, options) => {
   })
 
   on('session.measure', async ($, e, next) => {
+    // the cost first, so a reading arriving with it takes the cost it counts
+    if (e.changed.includes('cost') && e.cost) {
+      await takeCost($, settings, e.cost.usd)
+    }
     if (e.changed.includes('rateLimits')) {
       await takeOwn($, settings, e.rateLimits)
-    }
-    if (e.changed.includes('cost') && e.cost) {
-      const usd = e.cost.usd
-      const before = await read($, costUsd)
-      await update($, costUsd, () => usd)
-      if (settings.history && before !== null && usd > before) {
-        const at = await $.clock.now()
-        await storeDays($, all => addCost(all, at, usd - before))
-      }
     }
     return next(e)
   })
@@ -463,7 +494,19 @@ export const register: Register = (on, options) => {
     }
 
     const learned = settings.estimate ? await read($, calib) : {}
+    const learnedUsd = settings.estimate ? await read($, calibUsd) : {}
     const live = settings.estimate ? await read($, liveTokens) : 0
+    const stream = settings.estimate ? await read($, liveStream) : 0
+    const usdSince = settings.estimate ? await read($, liveUsd) : 0
+    // dollars cover every finished request, subagents' too, and tokens the
+    // one streaming; before dollars are learned, tokens cover all
+    const estimateFor = (w: LimitWindow) =>
+      learnedUsd[w.kind]
+        ? estimateFrom(w, [
+            { calib: learnedUsd, amount: usdSince },
+            { calib: learned, amount: stream },
+          ])
+        : estimateFrom(w, [{ calib: learned, amount: live }])
     const { isRow, bar } = layout(columns, Math.max(shown.length, 1))
     const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
     const details = [
@@ -490,7 +533,7 @@ export const register: Register = (on, options) => {
                   module="./bar.tsx"
                   props={{
                     percent: w.percentUsed,
-                    estimate: estimateOf(w, learned, live),
+                    estimate: estimateFor(w),
                     width: bar,
                     isAnimated: settings.animations,
                   }}
@@ -498,7 +541,7 @@ export const register: Register = (on, options) => {
                 />
                 <Text dimColor italic>
                   {(() => {
-                    const estimate = estimateOf(w, learned, live)
+                    const estimate = estimateFor(w)
                     return (estimate === null ? '' : ` ~${Math.round(estimate)}%`).padEnd(ESTIMATE_COLS)
                   })()}
                 </Text>
