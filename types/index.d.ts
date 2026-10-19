@@ -2,6 +2,16 @@ export type LimitWindow = { kind: string; percentUsed: number; resetsAt?: string
 
 export type PercentSample = { at: number; percent: number }
 
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
+export type Task = { id: string; subject: string; status: TaskStatus; activeForm?: string }
+
+export type Plan = { title: string; steps: string[] }
+
+export type PlanTask = { title: string; done: number; total: number }
+
+export type PlanFile = { path: string; title: string; tasks: PlanTask[]; mtimeMs: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'usage-limits': {
@@ -9,6 +19,9 @@ declare module 'claude-code' {
       burn: number[]
       fiveHour: PercentSample[]
       costUsd: number | null
+      tasks: Task[]
+      plan: Plan | null
+      planFile: PlanFile | null
     }
   }
 }

@@ -6,6 +6,7 @@ import { alertsBetween } from './alerts'
 import type { Alert } from './alerts'
 import { STRINGS, languageOf } from './i18n'
 import type { Strings } from './i18n'
+import { registerTasks, startTasks } from './tasks'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
@@ -216,8 +217,11 @@ export const register: Register = (on, options) => {
   const settings = settingsOf(options)
   let pendingAgentTokens = 0
 
+  registerTasks(on, settings.t)
+
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    await startTasks($, settings.t)
     await $.tool.register({
       name: 'usage_limits',
       description:

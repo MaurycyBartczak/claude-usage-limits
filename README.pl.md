@@ -18,6 +18,25 @@ Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym
 - Dźwięk przy 90% (Windows: PowerShell, macOS: afplay).
 - Narzędzie `usage_limits` dla agenta: Claude może sam sprawdzić Twoje limity, gdy o nie zapytasz albo przed dużą robotą.
 
+## Panel zadań /zadania
+
+`/zadania` otwiera (a drugie `/zadania` chowa) panel z zadaniami z planu:
+
+```
+Tryb kompaktowy — plan wdrożenia
+━━━━━━━──────────────────── 1/4 zadań
+kroki: 4/13
+✔ Task 1: Opcja w konfiguracji        3/3
+▶ Task 2: Układ jednowierszowy        1/4
+○ Task 3: Tłumaczenia                 0/2
+```
+
+- Śledzi zadania, które Claude tworzy w trakcie pracy (`TodoWrite`, `TaskCreate`, `TaskUpdate`).
+- Sam wczytuje plik planu, gdy Claude go zapisze, edytuje albo otworzy: plik `.md` z co najmniej dwoma nagłówkami z krokami `- [ ]` / `- [x]`. Zadanie jest zrobione, gdy wszystkie jego kroki są zaznaczone.
+- Pokazuje plan zatwierdzony w plan mode.
+- `/zadania ścieżka/do/planu.md` wczytuje plan ręcznie, `/zadania wyczyść` go zapomina. Panel śledzi plik, gdy kroki są odhaczane.
+- W pełnoekranowym układzie terminala (od 110 kolumn) panel staje obok rozmowy, w zwykłym nad promptem.
+
 Dane o limitach przychodzą z odpowiedzi API, więc pojawiają się po pierwszej odpowiedzi w sesji (tylko na subskrypcji Pro/Max).
 
 ## Ustawienia

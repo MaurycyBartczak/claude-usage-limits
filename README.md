@@ -18,6 +18,25 @@ Burn     ▁▂▅▃█▂▁▄▆⠹  last 8.1k tok · avg 5.3k · at this pa
 - A sound at 90% (Windows: PowerShell, macOS: afplay).
 - A `usage_limits` tool for the agent: Claude can check your limits itself when you ask about them or before heavy work.
 
+## The /zadania task pane
+
+`/zadania` opens (and a second `/zadania` hides) a pane with the plan's tasks:
+
+```
+Compact mode — implementation plan
+━━━━━━━──────────────────── 1/4 tasks
+steps: 4/13
+✔ Task 1: Config option              3/3
+▶ Task 2: One-row layout             1/4
+○ Task 3: Translations               0/2
+```
+
+- Tracks the tasks Claude writes as it works (`TodoWrite`, `TaskCreate`, `TaskUpdate`).
+- Loads a plan file by itself when Claude writes, edits or opens one: a `.md` with at least two headings holding `- [ ]` / `- [x]` steps. A task is done when all its steps are ticked.
+- Shows an approved plan from plan mode.
+- `/zadania path/to/plan.md` loads a plan by hand, `/zadania clear` forgets it. The pane follows the file as steps get ticked.
+- The pane docks beside the transcript in the fullscreen terminal layout (110+ columns), and opens above the prompt otherwise.
+
 The limit figures come with API responses, so they appear after the first response of a session (Pro/Max subscriptions only).
 
 ## Settings
