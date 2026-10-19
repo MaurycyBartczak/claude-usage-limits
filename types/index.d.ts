@@ -8,9 +8,17 @@ export type Task = { id: string; subject: string; status: TaskStatus; activeForm
 
 export type Plan = { title: string; steps: string[] }
 
-export type PlanTask = { title: string; done: number; total: number }
+// `status`: what the plan's progress ledger says, over the checkboxes
+export type PlanTask = { title: string; done: number; total: number; status?: TaskStatus }
 
-export type PlanFile = { path: string; title: string; tasks: PlanTask[]; mtimeMs: number }
+export type PlanFile = {
+  path: string
+  title: string
+  tasks: PlanTask[]
+  mtimeMs: number
+  ledgerPath?: string | null
+  ledgerMtimeMs?: number
+}
 
 // One day of use, summed over every session: "2026-10-19", local time.
 export type DayRecord = {

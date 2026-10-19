@@ -3,7 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { PlanFile, Task } from '../types'
 import type { Strings } from './i18n'
-import { parsePlan, parsePlanFile, pathOf, taskStatus } from './plan'
+import { applyLedger, ledgerCandidates, parseLedger, parsePlan, parsePlanFile, pathOf, taskStatus } from './plan'
 
 const PANE = 'zadania'
 const WATCH_MS = 3000
@@ -20,20 +20,53 @@ export function filledCells(done: number, total: number, width: number): number 
   return total > 0 ? Math.round((done / total) * width) : 0
 }
 
+async function findLedger($: EngineInterface, planPath: string): Promise<string | null> {
+  for (const candidate of ledgerCandidates(planPath)) {
+    try {
+      if (await $.fs.exists(candidate)) return candidate
+    } catch {
+      // keep looking
+    }
+  }
+  return null
+}
+
+async function mtimeOf($: EngineInterface, path: string | null): Promise<number> {
+  if (!path) return 0
+  try {
+    return (await $.fs.stat(path)).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
 async function loadPlanFile($: EngineInterface, path: string): Promise<PlanFile> {
   const text = await $.fs.read(path)
   const { mtimeMs } = await $.fs.stat(path)
   const parsed = parsePlanFile(text)
-  return { path, title: parsed.title, tasks: parsed.tasks, mtimeMs }
+  // a plan run by subagent-driven-development keeps its progress in a ledger
+  const ledgerPath = await findLedger($, path)
+  let tasks = parsed.tasks
+  if (ledgerPath) {
+    try {
+      tasks = applyLedger(tasks, parseLedger(await $.fs.read(ledgerPath)))
+    } catch {
+      // the checkboxes alone
+    }
+  }
+  return { path, title: parsed.title, tasks, mtimeMs, ledgerPath, ledgerMtimeMs: await mtimeOf($, ledgerPath) }
 }
 
-// Re-reads the loaded plan file when it changed on disk (a ticked step).
+// Re-reads the loaded plan file when it or its ledger changed on disk (a
+// ticked step, a task marked done), or when a ledger appeared beside it.
 async function refreshPlanFile($: EngineInterface): Promise<void> {
   const loaded = await read($, planFile)
   if (!loaded) return
   try {
     const { mtimeMs } = await $.fs.stat(loaded.path)
-    if (mtimeMs !== loaded.mtimeMs) {
+    const ledgerPath = loaded.ledgerPath ?? (await findLedger($, loaded.path))
+    const ledgerMtimeMs = await mtimeOf($, ledgerPath)
+    if (mtimeMs !== loaded.mtimeMs || ledgerPath !== (loaded.ledgerPath ?? null) || ledgerMtimeMs !== (loaded.ledgerMtimeMs ?? 0)) {
       const fresh = await loadPlanFile($, loaded.path)
       await update($, planFile, () => fresh)
     }

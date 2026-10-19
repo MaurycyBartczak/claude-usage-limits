@@ -50,6 +50,7 @@ kroki: 4/13
 
 - Śledzi zadania, które Claude tworzy w trakcie pracy (`TodoWrite`, `TaskCreate`, `TaskUpdate`).
 - Sam wczytuje plik planu, gdy Claude go zapisze, edytuje albo otworzy: plik `.md` z co najmniej dwoma nagłówkami z krokami `- [ ]` / `- [x]`. Zadanie jest zrobione, gdy wszystkie jego kroki są zaznaczone.
+- Śledzi plany wykonywane przez `subagent-driven-development`: ich księga postępu (`.superpowers/sdd/<plan>/progress.md`) oznacza zadania jako zrobione albo w toku, choć checkboxy w planie zostają puste.
 - Pokazuje plan zatwierdzony w plan mode.
 - `/zadania ścieżka/do/planu.md` wczytuje plan ręcznie, `/zadania wyczyść` go zapomina. Panel śledzi plik, gdy kroki są odhaczane.
 - W pełnoekranowym układzie terminala (od 110 kolumn) panel staje obok rozmowy, w zwykłym nad promptem.
