@@ -2,7 +2,7 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { colorAt } from './colors'
 
-type Props = { percent: number; width: number }
+type Props = { percent: number; width: number; isAnimated: boolean }
 
 type Anim = { shown: number; phase: number }
 
@@ -15,7 +15,7 @@ const live = new WeakMap<object, Props>()
 function tick(surface: ClientSurface<Anim>): void {
   const props = live.get(surface)
   const s = surface.state
-  if (!props || !s) return
+  if (!props || !s || !props.isAnimated) return
 
   const phase = (s.phase + 1) % SWEEP_EVERY
   const diff = props.percent - s.shown
@@ -41,7 +41,10 @@ const UsageBar: ClientModule<Props, Anim> = (props, surface) => {
     surface.every(FRAME_MS, () => tick(surface))
   }
 
-  const { shown, phase } = surface.state ?? { shown: 0, phase: 0 }
+  const anim = surface.state ?? { shown: 0, phase: 0 }
+  // without animations: the value as is, no shimmer, no pulse
+  const shown = props.isAnimated ? anim.shown : props.percent
+  const phase = props.isAnimated ? anim.phase : SWEEP_EVERY - 1
   const width = props.width
   const exact = (Math.min(Math.max(shown, 0), 100) / 100) * width
   const full = Math.floor(exact)
@@ -65,7 +68,7 @@ const UsageBar: ClientModule<Props, Anim> = (props, surface) => {
   }
   const empty = Math.max(width - full - (hasHalf ? 1 : 0), 0)
 
-  const isPulseOn = props.percent >= 90 && Math.floor(phase / PULSE_TICKS) % 2 === 0
+  const isPulseOn = props.isAnimated && props.percent >= 90 && Math.floor(phase / PULSE_TICKS) % 2 === 0
 
   return (
     <Box>

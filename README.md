@@ -11,6 +11,14 @@ Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym
 - Animacje: płynne wypełnianie, przebiegający połysk, pulsowanie powyżej 90%.
 - Wykres tokenów zużytych w każdej turze (z subagentami), animowany w trakcie pracy modelu.
 - Prognoza, kiedy przy obecnym tempie limit 5h dojdzie do 100%.
+- Koszt sesji w $ (równowartość cen API).
+- Powiadomienia przy przekroczeniu 50%, 75% i 90% oraz po resecie limitu.
+- Dźwięk przy 90% (Windows: PowerShell, macOS: afplay).
+- Narzędzie `usage_limits` dla agenta: Claude może sam sprawdzić Twoje limity, gdy o nie zapytasz albo przed dużą robotą.
+
+## Ustawienia
+
+W `/config` każdą funkcję można włączyć lub wyłączyć (domyślnie wszystko włączone): paski 5h i tygodniowy, wykres spalania, prognoza, koszt, animacje, powiadomienia przy progach, dźwięk przy 90%, powiadomienie o resecie.
 
 Dane o limitach przychodzą z odpowiedzi API, więc pojawiają się po pierwszej odpowiedzi w sesji (tylko na subskrypcji Pro/Max).
 

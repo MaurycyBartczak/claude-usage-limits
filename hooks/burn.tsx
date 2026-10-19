@@ -2,7 +2,7 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { colorAt } from './colors'
 
-type Props = { samples: number[]; isWorking: boolean; width: number }
+type Props = { samples: number[]; isWorking: boolean; width: number; isAnimated: boolean }
 
 type Anim = { frame: number }
 
@@ -16,7 +16,7 @@ const live = new WeakMap<object, Props>()
 function tick(surface: ClientSurface<Anim>): void {
   const props = live.get(surface)
   const s = surface.state
-  if (!props || !s || !props.isWorking) return
+  if (!props || !s || !props.isWorking || !props.isAnimated) return
   surface.setState({ frame: s.frame + 1 })
 }
 
@@ -50,7 +50,8 @@ const BurnChart: ClientModule<Props, Anim> = (props, surface) => {
             </Text>
           )
         })}
-        {props.isWorking ? (
+        {props.isWorking && !props.isAnimated ? <Text color="claude">…</Text> : null}
+        {props.isWorking && props.isAnimated ? (
           <Text>
             <Text color="claude">{LEVELS[LIVE_WAVE[frame % LIVE_WAVE.length] ?? 0]}</Text>
             <Text color="claude" weight="bold">{SPINNER[frame % SPINNER.length]}</Text>

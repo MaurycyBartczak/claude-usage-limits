@@ -8,6 +8,7 @@ declare module 'claude-code' {
       windows: LimitWindow[]
       burn: number[]
       fiveHour: PercentSample[]
+      costUsd: number | null
     }
   }
 }

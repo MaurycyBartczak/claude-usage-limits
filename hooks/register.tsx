@@ -1,15 +1,24 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, TurnUsage } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, TurnUsage } from 'claude-code'
 
 import type { LimitWindow, PercentSample } from '../types'
+import { alertsBetween } from './alerts'
+import type { Alert } from './alerts'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
 const fiveHour = atom({ plugin: 'usage-limits', key: 'fiveHour' } as const, [])
+const costUsd = atom({ plugin: 'usage-limits', key: 'costUsd' } as const, null)
 
 const LABELS: Record<string, string> = {
   five_hour: 'Sesja 5h',
   seven_day: 'Tydzień',
+}
+
+// Names for toasts, in a sentence.
+const NAMES: Record<string, string> = {
+  five_hour: 'sesji 5h',
+  seven_day: 'tygodniowy',
 }
 
 const ORDER = ['five_hour', 'seven_day']
@@ -22,6 +31,34 @@ const GAP = 3
 const MAX_BAR = 30
 const MAX_SAMPLES = 40
 const RATE_WINDOW_MS = 60 * 60_000
+
+type Settings = {
+  showFiveHour: boolean
+  showWeekly: boolean
+  showBurn: boolean
+  showForecast: boolean
+  showCost: boolean
+  animations: boolean
+  thresholdToasts: boolean
+  sound90: boolean
+  resetToast: boolean
+}
+
+// Every switch is on unless the person turned it off in /config.
+function settingsOf(options: PluginOptions): Settings {
+  const on = (key: keyof Settings) => options[key] !== false
+  return {
+    showFiveHour: on('showFiveHour'),
+    showWeekly: on('showWeekly'),
+    showBurn: on('showBurn'),
+    showForecast: on('showForecast'),
+    showCost: on('showCost'),
+    animations: on('animations'),
+    thresholdToasts: on('thresholdToasts'),
+    sound90: on('sound90'),
+    resetToast: on('resetToast'),
+  }
+}
 
 function duration(ms: number): string {
   const minutes = Math.max(Math.floor(ms / 60_000), 0)
@@ -47,37 +84,101 @@ function tokens(n: number): string {
   return String(n)
 }
 
+export function dollars(usd: number): string {
+  return usd < 10 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(1)}`
+}
+
 // What a turn spends against the limits; cache reads are left out as near free.
 function spent(usage: TurnUsage): number {
   return usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens
 }
 
-function pick(all: LimitWindow[]): LimitWindow[] {
+function pick(all: LimitWindow[], settings: Settings): LimitWindow[] {
   return all
-    .filter(w => w.kind in LABELS)
+    .filter(w => (w.kind === 'five_hour' && settings.showFiveHour) || (w.kind === 'seven_day' && settings.showWeekly))
     .sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind))
 }
 
+type Pace = { kind: 'eta'; ms: number } | { kind: 'ok' }
+
 // When the 5h window hits 100% at the pace of the last hour, if before its reset.
-export function forecast(samples: PercentSample[], now: number, resetsAt?: string): string {
+function paceOf(samples: PercentSample[], now: number, resetsAt?: string): Pace | null {
   const recent = samples.filter(s => now - s.at <= RATE_WINDOW_MS)
   const first = recent[0]
   const last = recent[recent.length - 1]
   if (!first || !last || last.at - first.at < 60_000 || last.percent <= first.percent) {
-    return ''
+    return null
   }
   const perMs = (last.percent - first.percent) / (last.at - first.at)
   const eta = (100 - last.percent) / perMs
   const resetIn = resetsAt ? Date.parse(resetsAt) - now : Infinity
-  if (eta >= resetIn) return 'tempo OK do resetu'
-  return `w tym tempie 100% za ~${duration(eta)}`
+  return eta >= resetIn ? { kind: 'ok' } : { kind: 'eta', ms: eta }
 }
 
-// One row when both bars fit at a decent length, else one row per window.
-function layout(columns: number, count: number): { isRow: boolean; bar: number } {
-  const rowBar = Math.floor((columns - GAP * (count - 1)) / count) - FIXED_COLS
-  if (rowBar >= 14) return { isRow: true, bar: Math.min(rowBar, MAX_BAR) }
-  return { isRow: false, bar: Math.max(Math.min(columns - FIXED_COLS, 40), 8) }
+export function forecast(samples: PercentSample[], now: number, resetsAt?: string): string {
+  const pace = paceOf(samples, now, resetsAt)
+  if (!pace) return ''
+  if (pace.kind === 'ok') return 'tempo OK do resetu'
+  return `w tym tempie 100% za ~${duration(pace.ms)}`
+}
+
+const WINDOW_NAMES: Record<string, string> = {
+  five_hour: '5-hour session limit',
+  seven_day: 'Weekly limit',
+}
+
+// What the usage_limits tool answers the model: the limits and the pace, whatever the band shows.
+export function snapshot(limits: LimitWindow[], samples: PercentSample[], now: number): string {
+  if (limits.length === 0) {
+    return 'No rate-limit reading yet: it arrives with the first API response of the session, and stays empty on accounts without a Claude subscription.'
+  }
+  const lines = limits.map(w => {
+    const reset = w.resetsAt ? `, resets in ${duration(Date.parse(w.resetsAt) - now)} (${w.resetsAt})` : ''
+    return `${WINDOW_NAMES[w.kind] ?? w.kind}: ${w.percentUsed}% used${reset}`
+  })
+
+  const five = limits.find(w => w.kind === 'five_hour')
+  const pace = paceOf(samples, now, five?.resetsAt)
+  if (pace?.kind === 'eta') {
+    lines.push(`Pace: at the last hour's rate the 5-hour limit reaches 100% in ~${duration(pace.ms)}, before it resets`)
+  } else if (pace?.kind === 'ok') {
+    lines.push("Pace: at the last hour's rate the 5-hour limit resets before reaching 100%")
+  } else {
+    lines.push('Pace: not enough readings in the last hour to estimate')
+  }
+  return lines.join('\n')
+}
+
+export function alertText(alert: Alert, limits: LimitWindow[], now: number): string {
+  const name = NAMES[alert.window] ?? alert.window
+  if (alert.kind === 'reset') {
+    return `✅ Limit ${name} zresetowany, możesz działać dalej`
+  }
+  const reset = untilReset(limits.find(w => w.kind === alert.window)?.resetsAt, now)
+  const icon = alert.threshold >= 90 ? '🔴' : '⚠'
+  return `${icon} Limit ${name}: ${Math.round(alert.percent)}% zużyte${reset ? ` · ${reset}` : ''}`
+}
+
+// One short system sound; Windows and Linux terminals have no clip player.
+async function chime($: EngineInterface): Promise<void> {
+  try {
+    if ((await $.env.get('OS')) === 'Windows_NT') {
+      await $.process.run(
+        [
+          'powershell.exe',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "(New-Object Media.SoundPlayer 'C:\\Windows\\Media\\Windows Exclamation.wav').PlaySync()",
+        ],
+        { timeoutMs: 10_000 },
+      )
+    } else {
+      await $.process.run(['afplay', '/System/Library/Sounds/Ping.aiff'], { timeoutMs: 10_000 })
+    }
+  } catch {
+    // no player on this machine: the toast still says it
+  }
 }
 
 // Keeps the windows, and a trail of the 5h reading for the forecast.
@@ -94,24 +195,70 @@ async function remember($: EngineInterface, limits: LimitWindow[]): Promise<void
   }
 }
 
-export const register: Register = on => {
+async function announce($: EngineInterface, settings: Settings, before: LimitWindow[], after: LimitWindow[]) {
+  const now = await $.clock.now()
+  let shouldChime = false
+  for (const alert of alertsBetween(before, after)) {
+    const isWanted = alert.kind === 'reset' ? settings.resetToast : settings.thresholdToasts
+    if (isWanted) {
+      $.ui.toast(alertText(alert, after, now))
+    }
+    if (alert.kind === 'threshold' && alert.threshold >= 90 && settings.sound90) {
+      shouldChime = true
+    }
+  }
+  if (shouldChime) {
+    await chime($)
+  }
+}
+
+// One row when both bars fit at a decent length, else one row per window.
+function layout(columns: number, count: number): { isRow: boolean; bar: number } {
+  const rowBar = Math.floor((columns - GAP * (count - 1)) / count) - FIXED_COLS
+  if (rowBar >= 14) return { isRow: true, bar: Math.min(rowBar, MAX_BAR) }
+  return { isRow: false, bar: Math.max(Math.min(columns - FIXED_COLS, 40), 8) }
+}
+
+export const register: Register = (on, options) => {
+  const settings = settingsOf(options)
   let pendingAgentTokens = 0
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    const { rateLimits } = await $.session.usage()
+    await $.tool.register({
+      name: 'usage_limits',
+      description:
+        "Reports the user's Claude subscription usage limits right now: how much of the 5-hour session limit and the weekly limit is used (percent), when each resets, and the pace forecast for the 5-hour limit. Call it when the user asks about their limits or usage, or before starting large, token-heavy work.",
+      inputSchema: { type: 'object', properties: {} },
+    })
+    const { rateLimits, cost } = await $.session.usage()
     if (rateLimits.length > 0) {
       await remember($, rateLimits)
+    }
+    if (cost) {
+      await update($, costUsd, () => cost.usd)
     }
     return result
   })
 
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
+      const before = await read($, windows)
       await remember($, e.rateLimits)
+      await announce($, settings, before, e.rateLimits)
+    }
+    if (e.changed.includes('cost') && e.cost) {
+      const usd = e.cost.usd
+      await update($, costUsd, () => usd)
     }
     return next(e)
   })
+
+  // a RegExp, as the tool is typed only once the engine has loaded it
+  on('tool.call', { tool: /^mcp__usage-limits__usage_limits$/ }, async $ => {
+    const text = snapshot(await read($, windows), await read($, fiveHour), await $.clock.now())
+    return { result: text }
+  }).catch(() => ({ deny: 'usage_limits could not read the usage figures' }))
 
   on('turn.complete', async ($, e, next) => {
     if (e.usage) {
@@ -137,58 +284,70 @@ export const register: Register = on => {
     }
 
     const { Box, Text, Client } = $.ui.resolve(e)
-    const shown = pick(await read($, windows))
+    const all = await read($, windows)
+    const shown = pick(all, settings)
     const samples = await read($, burn)
+    const usd = await read($, costUsd)
     const columns = e.props.bodyColumns
-
-    if (shown.length === 0) {
-      return (
-        <Box>
-          <Text dimColor>Limity: brak odczytu (pojawi się po pierwszej odpowiedzi)</Text>
-        </Box>
-      )
-    }
-
     const now = await $.clock.now()
-    const { isRow, bar } = layout(columns, shown.length)
-    const five = shown.find(w => w.kind === 'five_hour')
-    const pace = forecast(await read($, fiveHour), now, five?.resetsAt)
+
+    const five = all.find(w => w.kind === 'five_hour')
+    const pace = settings.showForecast ? forecast(await read($, fiveHour), now, five?.resetsAt) : ''
+    const cost = settings.showCost && usd !== null ? dollars(usd) : ''
     const lastTurn = samples[samples.length - 1]
     const average = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0
-    const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 50, MAX_SAMPLES), 8)
+    const hasBars = settings.showFiveHour || settings.showWeekly
+    const hasInfoRow = settings.showBurn || pace !== '' || cost !== ''
+
+    if (!hasBars && !hasInfoRow) {
+      return next(e)
+    }
+
+    const { isRow, bar } = layout(columns, Math.max(shown.length, 1))
+    const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
+    const details = [
+      settings.showBurn && lastTurn !== undefined ? `ostatnia ${tokens(lastTurn)} tok · śr. ${tokens(Math.round(average))}` : '',
+      pace,
+      cost ? `koszt ${cost}` : '',
+    ].filter(Boolean)
 
     return (
       <Box flexDirection="column">
-        <Box flexDirection={isRow ? 'row' : 'column'} columnGap={GAP}>
-          {shown.map(w => (
-            <Box key={w.kind}>
-              <Text weight="bold">{(LABELS[w.kind] ?? w.kind).padEnd(LABEL_COLS)}</Text>
+        {hasBars && shown.length === 0 ? (
+          <Box key="waiting">
+            <Text dimColor>Limity: brak odczytu (pojawi się po pierwszej odpowiedzi)</Text>
+          </Box>
+        ) : null}
+        {shown.length > 0 ? (
+          <Box key="bars" flexDirection={isRow ? 'row' : 'column'} columnGap={GAP}>
+            {shown.map(w => (
+              <Box key={w.kind}>
+                <Text weight="bold">{(LABELS[w.kind] ?? w.kind).padEnd(LABEL_COLS)}</Text>
+                <Client
+                  key={`bar-${w.kind}`}
+                  module="./bar.tsx"
+                  props={{ percent: w.percentUsed, width: bar, isAnimated: settings.animations }}
+                  width={bar + PERCENT_COLS}
+                />
+                <Text dimColor>{` ${untilReset(w.resetsAt, now)}`.padEnd(RESET_COLS)}</Text>
+              </Box>
+            ))}
+          </Box>
+        ) : null}
+        {hasInfoRow ? (
+          <Box key="info">
+            <Text weight="bold">{(settings.showBurn ? 'Spalanie' : 'Info').padEnd(LABEL_COLS)}</Text>
+            {settings.showBurn && (samples.length > 0 || e.props.isWorking) ? (
               <Client
-                key={`bar-${w.kind}`}
-                module="./bar.tsx"
-                props={{ percent: w.percentUsed, width: bar }}
-                width={bar + PERCENT_COLS}
+                key="burn-chart"
+                module="./burn.tsx"
+                props={{ samples, isWorking: e.props.isWorking, width: chartWidth, isAnimated: settings.animations }}
               />
-              <Text dimColor>{` ${untilReset(w.resetsAt, now)}`.padEnd(RESET_COLS)}</Text>
-            </Box>
-          ))}
-        </Box>
-        <Box key="burn">
-          <Text weight="bold">{'Spalanie'.padEnd(LABEL_COLS)}</Text>
-          {samples.length > 0 || e.props.isWorking ? (
-            <Client
-              key="burn-chart"
-              module="./burn.tsx"
-              props={{ samples, isWorking: e.props.isWorking, width: chartWidth }}
-            />
-          ) : (
-            <Text dimColor>brak tur</Text>
-          )}
-          <Text dimColor>
-            {lastTurn !== undefined ? ` ostatnia ${tokens(lastTurn)} tok · śr. ${tokens(Math.round(average))}` : ''}
-            {pace ? ` · ${pace}` : ''}
-          </Text>
-        </Box>
+            ) : null}
+            {settings.showBurn && samples.length === 0 && !e.props.isWorking ? <Text dimColor>brak tur</Text> : null}
+            <Text dimColor>{details.length > 0 ? ` ${details.join(' · ')}` : ''}</Text>
+          </Box>
+        ) : null}
       </Box>
     )
   })
