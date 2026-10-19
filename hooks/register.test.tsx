@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 import { alertsBetween } from './alerts'
 import { levelOf } from './burn'
 import { colorAt } from './colors'
+import { STRINGS } from './i18n'
 import { dollars, forecast } from './register'
 
 const BAND_PROPS = {
@@ -152,6 +153,37 @@ test('the usage_limits tool tells the model the limits, not cost or burn', async
   expect(text).not.toContain('3.5k')
 })
 
+test('speaks English when the language is set to en', { options: { language: 'en' } }, async ($, on) => {
+  const { toasts } = engine(on)
+  const measure = (five: number) =>
+    $.session.measure({
+      context: CONTEXT,
+      rateLimits: [
+        { kind: 'five_hour', percentUsed: five },
+        { kind: 'seven_day', percentUsed: 18 },
+      ],
+      cost: { usd: 1.5 },
+      changed: ['rateLimits', 'cost'],
+    })
+  await measure(40)
+  await measure(80)
+  expect(toasts).toEqual([expect.stringContaining('5-hour limit: 80% used')])
+  await measure(1)
+  expect(toasts[1]).toContain('5-hour limit has reset')
+  await $.turn.complete({ turnId: 't1', reason: 'answer', usage: USAGE } as never)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'usage-limits', surface, component: 'AbovePrompt', props: BAND_PROPS })
+    expect(await ui.find({ type: 'Text', text: /5h limit/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Weekly/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Burn/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /last 3\.5k tok · avg 3\.5k/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /cost \$1\.50/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Sesja|Tydzień|Spalanie|koszt/ })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
 test('alerts between readings', async () => {
   const five = (p: number) => [{ kind: 'five_hour', percentUsed: p }]
   expect(alertsBetween(five(40), five(60))).toEqual([{ kind: 'threshold', window: 'five_hour', threshold: 50, percent: 60 }])
@@ -188,7 +220,8 @@ test('forecast of the 5h window', async () => {
     { at: now, percent: 60 },
   ]
   // 20 points per half hour: 40 left takes an hour
-  expect(forecast(samples, now, new Date(now + 3 * hour).toISOString())).toBe('w tym tempie 100% za ~1h 0m')
-  expect(forecast(samples, now, new Date(now + hour / 2).toISOString())).toBe('tempo OK do resetu')
-  expect(forecast([], now)).toBe('')
+  expect(forecast(STRINGS.pl, samples, now, new Date(now + 3 * hour).toISOString())).toBe('w tym tempie 100% za ~1h 0m')
+  expect(forecast(STRINGS.en, samples, now, new Date(now + 3 * hour).toISOString())).toBe('at this pace 100% in ~1h 0m')
+  expect(forecast(STRINGS.pl, samples, now, new Date(now + hour / 2).toISOString())).toBe('tempo OK do resetu')
+  expect(forecast(STRINGS.pl, [], now)).toBe('')
 })

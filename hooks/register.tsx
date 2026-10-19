@@ -4,28 +4,19 @@ import type { EngineInterface, PluginOptions, Register, TurnUsage } from 'claude
 import type { LimitWindow, PercentSample } from '../types'
 import { alertsBetween } from './alerts'
 import type { Alert } from './alerts'
+import { STRINGS, languageOf } from './i18n'
+import type { Strings } from './i18n'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
 const fiveHour = atom({ plugin: 'usage-limits', key: 'fiveHour' } as const, [])
 const costUsd = atom({ plugin: 'usage-limits', key: 'costUsd' } as const, null)
 
-const LABELS: Record<string, string> = {
-  five_hour: 'Sesja 5h',
-  seven_day: 'Tydzień',
-}
-
-// Names for toasts, in a sentence.
-const NAMES: Record<string, string> = {
-  five_hour: 'sesji 5h',
-  seven_day: 'tygodniowy',
-}
-
 const ORDER = ['five_hour', 'seven_day']
 
-const LABEL_COLS = 9 // "Sesja 5h "
+const LABEL_COLS = 9 // "Sesja 5h ", "5h limit "
 const PERCENT_COLS = 5 // " 100%"
-const RESET_COLS = 16 // " reset za 6d 23h"
+const RESET_COLS = 17 // " resets in 6d 23h"
 const FIXED_COLS = LABEL_COLS + PERCENT_COLS + RESET_COLS
 const GAP = 3
 const MAX_BAR = 30
@@ -42,6 +33,7 @@ type Settings = {
   thresholdToasts: boolean
   sound90: boolean
   resetToast: boolean
+  t: Strings
 }
 
 // Every switch is on unless the person turned it off in /config.
@@ -57,6 +49,7 @@ function settingsOf(options: PluginOptions): Settings {
     thresholdToasts: on('thresholdToasts'),
     sound90: on('sound90'),
     resetToast: on('resetToast'),
+    t: STRINGS[languageOf(options.language)],
   }
 }
 
@@ -70,12 +63,12 @@ function duration(ms: number): string {
   return `${mins}m`
 }
 
-function untilReset(resetsAt: string | undefined, now: number): string {
+function untilReset(t: Strings, resetsAt: string | undefined, now: number): string {
   if (!resetsAt) return ''
   const ms = Date.parse(resetsAt) - now
   if (!Number.isFinite(ms)) return ''
-  if (ms <= 0) return 'reset teraz'
-  return `reset za ${duration(ms)}`
+  if (ms <= 0) return t.resetsNow
+  return t.resetsIn(duration(ms))
 }
 
 function tokens(n: number): string {
@@ -115,11 +108,11 @@ function paceOf(samples: PercentSample[], now: number, resetsAt?: string): Pace 
   return eta >= resetIn ? { kind: 'ok' } : { kind: 'eta', ms: eta }
 }
 
-export function forecast(samples: PercentSample[], now: number, resetsAt?: string): string {
+export function forecast(t: Strings, samples: PercentSample[], now: number, resetsAt?: string): string {
   const pace = paceOf(samples, now, resetsAt)
   if (!pace) return ''
-  if (pace.kind === 'ok') return 'tempo OK do resetu'
-  return `w tym tempie 100% za ~${duration(pace.ms)}`
+  if (pace.kind === 'ok') return t.paceOk
+  return t.paceEta(duration(pace.ms))
 }
 
 const WINDOW_NAMES: Record<string, string> = {
@@ -149,14 +142,14 @@ export function snapshot(limits: LimitWindow[], samples: PercentSample[], now: n
   return lines.join('\n')
 }
 
-export function alertText(alert: Alert, limits: LimitWindow[], now: number): string {
-  const name = NAMES[alert.window] ?? alert.window
+export function alertText(t: Strings, alert: Alert, limits: LimitWindow[], now: number): string {
+  const name = t.names[alert.window] ?? alert.window
   if (alert.kind === 'reset') {
-    return `✅ Limit ${name} zresetowany, możesz działać dalej`
+    return t.resetToast(name)
   }
-  const reset = untilReset(limits.find(w => w.kind === alert.window)?.resetsAt, now)
+  const reset = untilReset(t, limits.find(w => w.kind === alert.window)?.resetsAt, now)
   const icon = alert.threshold >= 90 ? '🔴' : '⚠'
-  return `${icon} Limit ${name}: ${Math.round(alert.percent)}% zużyte${reset ? ` · ${reset}` : ''}`
+  return `${icon} ${t.thresholdToast(name, Math.round(alert.percent))}${reset ? ` · ${reset}` : ''}`
 }
 
 // One short system sound; Windows and Linux terminals have no clip player.
@@ -201,7 +194,7 @@ async function announce($: EngineInterface, settings: Settings, before: LimitWin
   for (const alert of alertsBetween(before, after)) {
     const isWanted = alert.kind === 'reset' ? settings.resetToast : settings.thresholdToasts
     if (isWanted) {
-      $.ui.toast(alertText(alert, after, now))
+      $.ui.toast(alertText(settings.t, alert, after, now))
     }
     if (alert.kind === 'threshold' && alert.threshold >= 90 && settings.sound90) {
       shouldChime = true
@@ -292,7 +285,8 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
 
     const five = all.find(w => w.kind === 'five_hour')
-    const pace = settings.showForecast ? forecast(await read($, fiveHour), now, five?.resetsAt) : ''
+    const t = settings.t
+    const pace = settings.showForecast ? forecast(t, await read($, fiveHour), now, five?.resetsAt) : ''
     const cost = settings.showCost && usd !== null ? dollars(usd) : ''
     const lastTurn = samples[samples.length - 1]
     const average = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0
@@ -306,37 +300,37 @@ export const register: Register = (on, options) => {
     const { isRow, bar } = layout(columns, Math.max(shown.length, 1))
     const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
     const details = [
-      settings.showBurn && lastTurn !== undefined ? `ostatnia ${tokens(lastTurn)} tok · śr. ${tokens(Math.round(average))}` : '',
+      settings.showBurn && lastTurn !== undefined ? t.lastTurn(tokens(lastTurn), tokens(Math.round(average))) : '',
       pace,
-      cost ? `koszt ${cost}` : '',
+      cost ? t.cost(cost) : '',
     ].filter(Boolean)
 
     return (
       <Box flexDirection="column">
         {hasBars && shown.length === 0 ? (
           <Box key="waiting">
-            <Text dimColor>Limity: brak odczytu (pojawi się po pierwszej odpowiedzi)</Text>
+            <Text dimColor>{t.waiting}</Text>
           </Box>
         ) : null}
         {shown.length > 0 ? (
           <Box key="bars" flexDirection={isRow ? 'row' : 'column'} columnGap={GAP}>
             {shown.map(w => (
               <Box key={w.kind}>
-                <Text weight="bold">{(LABELS[w.kind] ?? w.kind).padEnd(LABEL_COLS)}</Text>
+                <Text weight="bold">{(t.labels[w.kind] ?? w.kind).padEnd(LABEL_COLS)}</Text>
                 <Client
                   key={`bar-${w.kind}`}
                   module="./bar.tsx"
                   props={{ percent: w.percentUsed, width: bar, isAnimated: settings.animations }}
                   width={bar + PERCENT_COLS}
                 />
-                <Text dimColor>{` ${untilReset(w.resetsAt, now)}`.padEnd(RESET_COLS)}</Text>
+                <Text dimColor>{` ${untilReset(t, w.resetsAt, now)}`.padEnd(RESET_COLS)}</Text>
               </Box>
             ))}
           </Box>
         ) : null}
         {hasInfoRow ? (
           <Box key="info">
-            <Text weight="bold">{(settings.showBurn ? 'Spalanie' : 'Info').padEnd(LABEL_COLS)}</Text>
+            <Text weight="bold">{(settings.showBurn ? t.burn : t.info).padEnd(LABEL_COLS)}</Text>
             {settings.showBurn && (samples.length > 0 || e.props.isWorking) ? (
               <Client
                 key="burn-chart"
@@ -344,7 +338,7 @@ export const register: Register = (on, options) => {
                 props={{ samples, isWorking: e.props.isWorking, width: chartWidth, isAnimated: settings.animations }}
               />
             ) : null}
-            {settings.showBurn && samples.length === 0 && !e.props.isWorking ? <Text dimColor>brak tur</Text> : null}
+            {settings.showBurn && samples.length === 0 && !e.props.isWorking ? <Text dimColor>{t.noTurns}</Text> : null}
             <Text dimColor>{details.length > 0 ? ` ${details.join(' · ')}` : ''}</Text>
           </Box>
         ) : null}

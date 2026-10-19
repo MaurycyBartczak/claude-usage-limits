@@ -1,62 +1,69 @@
 {
   "name": "usage-limits",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Band above the prompt showing 5-hour session and weekly usage limits",
   "author": { "name": "MaurycyBartczak" },
   "types": "./types/index.d.ts",
   "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Język / Language",
+      "description": "Język paska i powiadomień: pl lub en / Language of the band and notifications: pl or en",
+      "options": ["pl", "en"],
+      "default": "pl"
+    },
     "showFiveHour": {
       "type": "boolean",
-      "title": "Pasek limitu sesji 5h",
-      "description": "Pokazuj pasek zużycia limitu 5-godzinnego",
+      "title": "Pasek limitu 5h / 5-hour limit bar",
+      "description": "Pokazuj pasek zużycia limitu 5-godzinnego / Show the 5-hour limit usage bar",
       "default": true
     },
     "showWeekly": {
       "type": "boolean",
-      "title": "Pasek limitu tygodniowego",
-      "description": "Pokazuj pasek zużycia limitu tygodniowego",
+      "title": "Pasek limitu tygodniowego / Weekly limit bar",
+      "description": "Pokazuj pasek zużycia limitu tygodniowego / Show the weekly limit usage bar",
       "default": true
     },
     "showBurn": {
       "type": "boolean",
-      "title": "Wykres spalania tokenów",
-      "description": "Pokazuj wykres tokenów zużytych w każdej turze",
+      "title": "Wykres spalania tokenów / Token burn chart",
+      "description": "Pokazuj wykres tokenów zużytych w każdej turze / Show tokens spent per turn",
       "default": true
     },
     "showForecast": {
       "type": "boolean",
-      "title": "Prognoza limitu 5h",
-      "description": "Pokazuj, kiedy przy obecnym tempie limit 5h dojdzie do 100%",
+      "title": "Prognoza limitu 5h / 5-hour forecast",
+      "description": "Pokazuj, kiedy przy obecnym tempie limit 5h dojdzie do 100% / Show when the 5-hour limit reaches 100% at the current pace",
       "default": true
     },
     "showCost": {
       "type": "boolean",
-      "title": "Koszt sesji w $",
-      "description": "Pokazuj koszt sesji (równowartość cen API)",
+      "title": "Koszt sesji w $ / Session cost in $",
+      "description": "Pokazuj koszt sesji (równowartość cen API) / Show the session cost (API-price equivalent)",
       "default": true
     },
     "animations": {
       "type": "boolean",
-      "title": "Animacje",
-      "description": "Płynne wypełnianie, połysk, pulsowanie i spinner",
+      "title": "Animacje / Animations",
+      "description": "Płynne wypełnianie, połysk, pulsowanie i spinner / Fill, shimmer, pulse and spinner",
       "default": true
     },
     "thresholdToasts": {
       "type": "boolean",
-      "title": "Powiadomienia przy progach",
-      "description": "Powiadomienie, gdy limit przekroczy 50%, 75% lub 90%",
+      "title": "Powiadomienia przy progach / Threshold notifications",
+      "description": "Powiadomienie, gdy limit przekroczy 50%, 75% lub 90% / Notify when a limit crosses 50%, 75% or 90%",
       "default": true
     },
     "sound90": {
       "type": "boolean",
-      "title": "Dźwięk przy 90%",
-      "description": "Sygnał dźwiękowy, gdy limit przekroczy 90%",
+      "title": "Dźwięk przy 90% / Sound at 90%",
+      "description": "Sygnał dźwiękowy, gdy limit przekroczy 90% / Play a sound when a limit crosses 90%",
       "default": true
     },
     "resetToast": {
       "type": "boolean",
-      "title": "Powiadomienie o resecie",
-      "description": "Powiadomienie, gdy limit się zresetuje",
+      "title": "Powiadomienie o resecie / Reset notification",
+      "description": "Powiadomienie, gdy limit się zresetuje / Notify when a limit resets",
       "default": true
     }
   }

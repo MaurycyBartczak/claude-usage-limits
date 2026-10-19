@@ -1,43 +1,48 @@
 # usage-limits
 
-Mod do Claude Code: pasek nad promptem pokazujący zużycie limitu sesji 5h i tygodniowego, z wykresem spalania tokenów.
+**English** · [Polski](README.pl.md)
+
+A Claude Code mod: a band above the prompt showing how much of your 5-hour session limit and weekly limit is used, with a token burn chart.
 
 ```
-Sesja 5h ━━━━━━━━━━━╸──────────────   43% reset za 2h 13m   Tydzień ━━━━━─────────────────────   18% reset za 3d 4h
-Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym tempie 100% za ~1h 40m
+5h limit ━━━━━━━━━━━╸──────────────   43% resets in 2h 13m   Weekly   ━━━━━─────────────────────   18% resets in 3d 4h
+Burn     ▁▂▅▃█▂▁▄▆⠹  last 8.1k tok · avg 5.3k · at this pace 100% in ~1h 40m · cost $1.23
 ```
 
-- Paski z kolorami progów: zielony do 50%, żółty do 75%, pomarańczowy do 90%, czerwony powyżej.
-- Animacje: płynne wypełnianie, przebiegający połysk, pulsowanie powyżej 90%.
-- Wykres tokenów zużytych w każdej turze (z subagentami), animowany w trakcie pracy modelu.
-- Prognoza, kiedy przy obecnym tempie limit 5h dojdzie do 100%.
-- Koszt sesji w $ (równowartość cen API).
-- Powiadomienia przy przekroczeniu 50%, 75% i 90% oraz po resecie limitu.
-- Dźwięk przy 90% (Windows: PowerShell, macOS: afplay).
-- Narzędzie `usage_limits` dla agenta: Claude może sam sprawdzić Twoje limity, gdy o nie zapytasz albo przed dużą robotą.
+- Bars colored by threshold: green below 50%, yellow below 75%, orange below 90%, red above.
+- Animations: smooth fill, a shimmer sweep, a pulse above 90%.
+- A chart of tokens spent per turn (subagents included), animated while the model works.
+- A forecast of when the 5-hour limit reaches 100% at the current pace.
+- The session cost in $ (API-price equivalent).
+- Notifications when a limit crosses 50%, 75% and 90%, and when it resets.
+- A sound at 90% (Windows: PowerShell, macOS: afplay).
+- A `usage_limits` tool for the agent: Claude can check your limits itself when you ask about them or before heavy work.
 
-## Ustawienia
+The limit figures come with API responses, so they appear after the first response of a session (Pro/Max subscriptions only).
 
-W `/config` każdą funkcję można włączyć lub wyłączyć (domyślnie wszystko włączone): paski 5h i tygodniowy, wykres spalania, prognoza, koszt, animacje, powiadomienia przy progach, dźwięk przy 90%, powiadomienie o resecie.
+## Settings
 
-Dane o limitach przychodzą z odpowiedzi API, więc pojawiają się po pierwszej odpowiedzi w sesji (tylko na subskrypcji Pro/Max).
+In `/config`:
 
-## Instalacja
+- **Język / Language**: `pl` (default) or `en`.
+- Every feature can be switched on or off (all on by default): the 5-hour and weekly bars, the burn chart, the forecast, the cost, animations, threshold notifications, the sound at 90%, the reset notification.
 
-W sesji Claude Code w terminalu:
+## Install
+
+At the prompt of a Claude Code terminal session:
 
 ```
 /plugin install usage-limits --marketplace MaurycyBartczak/claude-usage-limits
 ```
 
-Odpowiedz `y`, żeby dodać marketplace, potem wybierz zakres (Enter = user).
+Answer `y` to add the marketplace, then pick a scope (Enter = user).
 
-Z powłoki:
+From a shell:
 
 ```
 claude plugin install usage-limits --marketplace MaurycyBartczak/claude-usage-limits
 ```
 
-W aplikacji desktopowej (gdzie `/plugin` nie działa): kliknij + obok pola promptu, potem Plugins, Add marketplace z `MaurycyBartczak/claude-usage-limits`, potem Add plugin.
+In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `MaurycyBartczak/claude-usage-limits`, then Add plugin.
 
-Repozytorium jest prywatne: instalacja działa tylko dla osób z dostępem do niego na GitHubie, których komputer ma już zapisane dane logowania git do github.com (klucz SSH albo `gh auth login`, a potem `gh auth setup-git`). Instalator nie pyta o hasło.
+The repository is private: the install works only for people who can read it on GitHub and whose machine already holds a git credential for github.com (an SSH key, or `gh auth login` then `gh auth setup-git`). The install never prompts for one.
