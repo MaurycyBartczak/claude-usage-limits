@@ -34,6 +34,8 @@ declare module 'claude-code' {
       planFile: PlanFile | null
       days: DayRecord[]
       readingAt: number | null
+      calib: Record<string, number>
+      liveTokens: number
     }
   }
 }

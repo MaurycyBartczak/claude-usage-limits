@@ -1,6 +1,6 @@
 {
   "name": "usage-limits",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Band above the prompt showing 5-hour session and weekly usage limits, and a /zadania pane with the plan's tasks",
   "author": { "name": "MaurycyBartczak" },
   "types": "./types/index.d.ts",
@@ -46,6 +46,12 @@
       "type": "boolean",
       "title": "Historia między sesjami / History across sessions",
       "description": "Zapisuj zużycie między sesjami: wykres, prognoza i /limity / Keep usage across sessions: chart, forecast and /limity",
+      "default": true
+    },
+    "estimate": {
+      "type": "boolean",
+      "title": "Szacunek na żywo / Live estimate",
+      "description": "W trakcie pracy dorysuj szacowane zużycie do następnego odczytu / While Claude works, draw the estimated use until the next reading",
       "default": true
     },
     "animations": {

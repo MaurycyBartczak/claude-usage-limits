@@ -20,6 +20,8 @@ import {
   todayTokens,
 } from './history'
 import { readShared, readingKey, shareReading, shouldAdopt } from './share'
+import { calibrate, estimateOf, tokensOfText } from './estimate'
+import type { Calibration } from './estimate'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
@@ -27,18 +29,23 @@ const fiveHour = atom({ plugin: 'usage-limits', key: 'fiveHour' } as const, [])
 const costUsd = atom({ plugin: 'usage-limits', key: 'costUsd' } as const, null)
 const days = atom({ plugin: 'usage-limits', key: 'days' } as const, [])
 const readingAt = atom({ plugin: 'usage-limits', key: 'readingAt' } as const, null)
+const calib = atom({ plugin: 'usage-limits', key: 'calib' } as const, {})
+const liveTokens = atom({ plugin: 'usage-limits', key: 'liveTokens' } as const, 0)
 
 const ORDER = ['five_hour', 'seven_day']
 
 const LABEL_COLS = 9 // "Sesja 5h ", "5h limit "
 const PERCENT_COLS = 5 // " 100%"
+const ESTIMATE_COLS = 6 // " ~100%"
 const RESET_COLS = 17 // " resets in 6d 23h"
-const FIXED_COLS = LABEL_COLS + PERCENT_COLS + RESET_COLS
+const FIXED_COLS = LABEL_COLS + PERCENT_COLS + ESTIMATE_COLS + RESET_COLS
 const GAP = 3
 const MAX_BAR = 30
 const MAX_SAMPLES = 40
 const RATE_WINDOW_MS = 60 * 60_000
 const SYNC_MS = 15_000
+// streamed tokens between two redraws of the estimate
+const LIVE_STEP = 150
 
 type Settings = {
   showFiveHour: boolean
@@ -51,6 +58,7 @@ type Settings = {
   sound90: boolean
   resetToast: boolean
   history: boolean
+  estimate: boolean
   t: Strings
 }
 
@@ -68,6 +76,7 @@ function settingsOf(options: PluginOptions): Settings {
     sound90: on('sound90'),
     resetToast: on('resetToast'),
     history: on('history'),
+    estimate: on('estimate'),
     t: STRINGS[languageOf(options.language)],
   }
 }
@@ -236,10 +245,42 @@ async function announce($: EngineInterface, settings: Settings, before: LimitWin
 
 // The engine's last reading as this session took it, to tell a new one apart.
 let lastOwn = ''
+let lastOwnWindows: LimitWindow[] = []
+// Tokens this session spent since its last own reading: finished requests, and
+// the one streaming now by its characters.
+let sinceReading = 0
+let streamed = 0
+
+async function loadCalibration($: EngineInterface): Promise<void> {
+  try {
+    const stored = (await $.store.get('calib')) as Calibration | undefined
+    if (stored) await update($, calib, () => stored)
+  } catch {
+    // learn it afresh
+  }
+}
+
+async function showLive($: EngineInterface): Promise<void> {
+  const live = sinceReading + streamed
+  await update($, liveTokens, () => live)
+}
 
 async function takeOwn($: EngineInterface, settings: Settings, limits: LimitWindow[]): Promise<void> {
   lastOwn = readingKey(limits)
   const before = await read($, windows)
+  // what the spent tokens moved the windows by teaches the estimate
+  if (lastOwnWindows.length > 0) {
+    const learned = calibrate(await read($, calib), lastOwnWindows, limits, sinceReading)
+    await update($, calib, () => learned)
+    try {
+      await $.store.set('calib', learned)
+    } catch {
+      // the session keeps what it learned
+    }
+  }
+  lastOwnWindows = limits
+  sinceReading = 0
+  await showLive($)
   await remember($, limits, settings.history)
   await announce($, settings, before, limits)
 }
@@ -257,6 +298,9 @@ async function syncLimits($: EngineInterface, settings: Settings): Promise<void>
     const shared = await readShared($)
     if (shouldAdopt(shared, (await read($, readingAt)) ?? 0, await read($, windows))) {
       await remember($, shared.windows, settings.history, shared.at)
+      // a newer reading may count what we spent: start the estimate over
+      sinceReading = 0
+      await showLive($)
     }
   } catch {
     // try again next tick
@@ -293,9 +337,11 @@ export const register: Register = (on, options) => {
         "Reports the user's Claude subscription usage limits right now: how much of the 5-hour session limit and the weekly limit is used (percent), when each resets, and the pace forecast for the 5-hour limit. Call it when the user asks about their limits or usage, or before starting large, token-heavy work.",
       inputSchema: { type: 'object', properties: {} },
     })
+    await loadCalibration($)
     const { rateLimits, cost } = await $.session.usage()
     if (rateLimits.length > 0) {
       lastOwn = readingKey(rateLimits)
+      lastOwnWindows = rateLimits
       await remember($, rateLimits, settings.history)
     }
     if (cost) {
@@ -330,6 +376,40 @@ export const register: Register = (on, options) => {
     const text = snapshot(await read($, windows), await read($, fiveHour), await $.clock.now())
     return { result: text }
   }).catch(() => ({ deny: 'usage_limits could not read the usage figures' }))
+
+  // Each request of a turn: its streamed text feeds the live estimate, and
+  // once it ends the engine's fresh reading is taken at once.
+  on('turn.step', async function* ($, e, next) {
+    const stream = next(e)
+    let shown = 0
+    for (;;) {
+      const piece = await stream.next()
+      if (piece.done) {
+        try {
+          streamed = 0
+          if (piece.value?.usage) sinceReading += spent(piece.value.usage)
+          await syncLimits($, settings)
+          await showLive($)
+        } catch {
+          // the step's result stands
+        }
+        return piece.value
+      }
+      const chunk = piece.value
+      if (settings.estimate && (chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input')) {
+        streamed += tokensOfText(chunk.kind === 'input' ? chunk.json : chunk.text)
+        if (streamed - shown >= LIVE_STEP) {
+          shown = streamed
+          try {
+            await showLive($)
+          } catch {
+            // the stream goes on
+          }
+        }
+      }
+      yield chunk
+    }
+  })
 
   on('turn.complete', async ($, e, next) => {
     if (e.usage) {
@@ -382,6 +462,8 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
+    const learned = settings.estimate ? await read($, calib) : {}
+    const live = settings.estimate ? await read($, liveTokens) : 0
     const { isRow, bar } = layout(columns, Math.max(shown.length, 1))
     const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
     const details = [
@@ -406,9 +488,20 @@ export const register: Register = (on, options) => {
                 <Client
                   key={`bar-${w.kind}`}
                   module="./bar.tsx"
-                  props={{ percent: w.percentUsed, width: bar, isAnimated: settings.animations }}
+                  props={{
+                    percent: w.percentUsed,
+                    estimate: estimateOf(w, learned, live),
+                    width: bar,
+                    isAnimated: settings.animations,
+                  }}
                   width={bar + PERCENT_COLS}
                 />
+                <Text dimColor italic>
+                  {(() => {
+                    const estimate = estimateOf(w, learned, live)
+                    return (estimate === null ? '' : ` ~${Math.round(estimate)}%`).padEnd(ESTIMATE_COLS)
+                  })()}
+                </Text>
                 <Text dimColor>{` ${untilReset(t, w.resetsAt, now)}`.padEnd(RESET_COLS)}</Text>
               </Box>
             ))}

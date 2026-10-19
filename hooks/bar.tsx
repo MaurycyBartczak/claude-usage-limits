@@ -2,7 +2,8 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { colorAt } from './colors'
 
-type Props = { percent: number; width: number; isAnimated: boolean }
+// `estimate`: the percent with the tokens spent since the last reading added
+type Props = { percent: number; estimate?: number | null; width: number; isAnimated: boolean }
 
 type Anim = { shown: number; phase: number }
 
@@ -66,7 +67,11 @@ const UsageBar: ClientModule<Props, Anim> = (props, surface) => {
   if (hasHalf) {
     runs.push({ text: '╸', color: colorAt(((full + 0.5) / width) * 100), isBright: false })
   }
-  const empty = Math.max(width - full - (hasHalf ? 1 : 0), 0)
+  const used = full + (hasHalf ? 1 : 0)
+  // the estimate drawn faint past the reading, at least a cell once it shows
+  const estimated =
+    props.estimate == null ? 0 : Math.min(Math.max(Math.round((props.estimate / 100) * width) - used, 1), width - used)
+  const empty = Math.max(width - used - estimated, 0)
 
   const isPulseOn = props.isAnimated && props.percent >= 90 && Math.floor(phase / PULSE_TICKS) % 2 === 0
 
@@ -78,6 +83,11 @@ const UsageBar: ClientModule<Props, Anim> = (props, surface) => {
             {r.text}
           </Text>
         ))}
+        {estimated > 0 ? (
+          <Text dimColor color={colorAt(props.estimate ?? props.percent)}>
+            {'╍'.repeat(estimated)}
+          </Text>
+        ) : null}
         <Text dimColor>{'─'.repeat(empty)}</Text>
         <Text color={colorAt(props.percent)} weight={isPulseOn ? 'bold' : 'regular'} inverse={isPulseOn}>
           {` ${String(Math.round(shown)).padStart(3)}%`}

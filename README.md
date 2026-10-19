@@ -13,6 +13,7 @@ Burn     ▁▂▅▃█▂▁▄▆⠹  last 8.1k tok · avg 5.3k · at this pa
 - Animations: smooth fill, a shimmer sweep, a pulse above 90%.
 - A chart of tokens spent per turn (subagents included), animated while the model works.
 - A forecast of when the 5-hour limit reaches 100% at the current pace.
+- Live updates: the reading is taken after every request of a turn and shared between sessions; while Claude works, a faint `╍` segment and `~72%` show the estimated use until the next reading (learned from your own readings, so only an estimate).
 - The session cost in $ (API-price equivalent).
 - Notifications when a limit crosses 50%, 75% and 90%, and when it resets.
 - A sound at 90% (Windows: PowerShell, macOS: afplay).
@@ -60,7 +61,7 @@ The limit figures come with API responses, so they appear after the first respon
 In `/config`:
 
 - **Język / Language**: `pl` (default) or `en`.
-- Every feature can be switched on or off (all on by default): the 5-hour and weekly bars, the burn chart, the forecast, the cost, animations, threshold notifications, the sound at 90%, the reset notification.
+- Every feature can be switched on or off (all on by default): the 5-hour and weekly bars, the burn chart, the forecast, the cost, the live estimate, history, animations, threshold notifications, the sound at 90%, the reset notification.
 
 ## Install
 
