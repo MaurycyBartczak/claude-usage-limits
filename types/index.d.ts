@@ -33,6 +33,7 @@ declare module 'claude-code' {
       plan: Plan | null
       planFile: PlanFile | null
       days: DayRecord[]
+      readingAt: number | null
     }
   }
 }

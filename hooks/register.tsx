@@ -19,12 +19,14 @@ import {
   storeFiveHour,
   todayTokens,
 } from './history'
+import { readShared, readingKey, shareReading, shouldAdopt } from './share'
 
 const windows = atom({ plugin: 'usage-limits', key: 'windows' } as const, [])
 const burn = atom({ plugin: 'usage-limits', key: 'burn' } as const, [])
 const fiveHour = atom({ plugin: 'usage-limits', key: 'fiveHour' } as const, [])
 const costUsd = atom({ plugin: 'usage-limits', key: 'costUsd' } as const, null)
 const days = atom({ plugin: 'usage-limits', key: 'days' } as const, [])
+const readingAt = atom({ plugin: 'usage-limits', key: 'readingAt' } as const, null)
 
 const ORDER = ['five_hour', 'seven_day']
 
@@ -36,6 +38,7 @@ const GAP = 3
 const MAX_BAR = 30
 const MAX_SAMPLES = 40
 const RATE_WINDOW_MS = 60 * 60_000
+const SYNC_MS = 15_000
 
 type Settings = {
   showFiveHour: boolean
@@ -192,9 +195,14 @@ async function chime($: EngineInterface): Promise<void> {
 
 // Keeps the windows, and a trail of the 5h reading for the forecast; with
 // history on, the trail and the day's highest readings go to the store too.
-async function remember($: EngineInterface, limits: LimitWindow[], isHistory: boolean): Promise<void> {
+// A reading of this session's own (no `seenAt`) is shared with the others.
+async function remember($: EngineInterface, limits: LimitWindow[], isHistory: boolean, seenAt?: number): Promise<void> {
   await update($, windows, () => limits)
-  const at = await $.clock.now()
+  const at = seenAt ?? (await $.clock.now())
+  await update($, readingAt, () => at)
+  if (seenAt === undefined) {
+    await shareReading($, { at, windows: limits })
+  }
   const five = limits.find(w => w.kind === 'five_hour')
   if (five) {
     await update($, fiveHour, all => {
@@ -223,6 +231,35 @@ async function announce($: EngineInterface, settings: Settings, before: LimitWin
   }
   if (shouldChime) {
     await chime($)
+  }
+}
+
+// The engine's last reading as this session took it, to tell a new one apart.
+let lastOwn = ''
+
+async function takeOwn($: EngineInterface, settings: Settings, limits: LimitWindow[]): Promise<void> {
+  lastOwn = readingKey(limits)
+  const before = await read($, windows)
+  await remember($, limits, settings.history)
+  await announce($, settings, before, limits)
+}
+
+// Every few seconds: a reading of our own the engine has not pushed, else a
+// newer one another session shared. A shared reading raises no toast here:
+// the session that saw it first raised it.
+async function syncLimits($: EngineInterface, settings: Settings): Promise<void> {
+  try {
+    const own = (await $.session.usage()).rateLimits
+    if (own.length > 0 && readingKey(own) !== lastOwn) {
+      await takeOwn($, settings, own)
+      return
+    }
+    const shared = await readShared($)
+    if (shouldAdopt(shared, (await read($, readingAt)) ?? 0, await read($, windows))) {
+      await remember($, shared.windows, settings.history, shared.at)
+    }
+  } catch {
+    // try again next tick
   }
 }
 
@@ -258,19 +295,23 @@ export const register: Register = (on, options) => {
     })
     const { rateLimits, cost } = await $.session.usage()
     if (rateLimits.length > 0) {
+      lastOwn = readingKey(rateLimits)
       await remember($, rateLimits, settings.history)
     }
     if (cost) {
       await update($, costUsd, () => cost.usd)
     }
+    // a fresher reading another session already shared
+    await syncLimits($, settings)
+    $.clock.every(SYNC_MS, () => {
+      void syncLimits($, settings)
+    })
     return result
   })
 
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
-      const before = await read($, windows)
-      await remember($, e.rateLimits, settings.history)
-      await announce($, settings, before, e.rateLimits)
+      await takeOwn($, settings, e.rateLimits)
     }
     if (e.changed.includes('cost') && e.cost) {
       const usd = e.cost.usd
