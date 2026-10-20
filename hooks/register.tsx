@@ -34,6 +34,8 @@ const liveTokens = atom({ plugin: 'usage-limits', key: 'liveTokens' } as const, 
 const calibUsd = atom({ plugin: 'usage-limits', key: 'calibUsd' } as const, {})
 const liveUsd = atom({ plugin: 'usage-limits', key: 'liveUsd' } as const, 0)
 const liveStream = atom({ plugin: 'usage-limits', key: 'liveStream' } as const, 0)
+// the main turn in progress: its requests and its subagents' so far
+const liveTurn = atom({ plugin: 'usage-limits', key: 'liveTurn' } as const, 0)
 
 const ORDER = ['five_hour', 'seven_day']
 
@@ -250,9 +252,19 @@ async function announce($: EngineInterface, settings: Settings, before: LimitWin
 let lastOwn = ''
 let lastOwnWindows: LimitWindow[] = []
 // Tokens this session spent since its last own reading: finished requests, and
-// the one streaming now by its characters.
+// the ones streaming now by their characters, one count per request, as
+// subagents stream side by side.
 let sinceReading = 0
-let streamed = 0
+const streams = new Map<string, number>()
+// Tokens of the main turn in progress: its finished requests and those of the
+// subagents working for it, so the chart moves before the turn ends.
+let turnSpent = 0
+
+function streamedNow(): number {
+  let sum = 0
+  for (const one of streams.values()) sum += one
+  return sum
+}
 // The session's cost at its last own reading: what it grew by since, any
 // subagent's requests included, is what the reading does not count yet.
 let costAtReading: number | null = null
@@ -269,8 +281,9 @@ async function loadCalibration($: EngineInterface): Promise<void> {
 }
 
 async function showLive($: EngineInterface): Promise<void> {
-  const live = sinceReading + streamed
-  const stream = streamed
+  const stream = streamedNow()
+  const live = sinceReading + stream
+  await update($, liveTurn, () => turnSpent + stream)
   const cost = await read($, costUsd)
   const usd = cost !== null && costAtReading !== null ? Math.max(cost - costAtReading, 0) : 0
   await update($, liveTokens, () => live)
@@ -412,33 +425,46 @@ export const register: Register = (on, options) => {
   // once it ends the engine's fresh reading is taken at once.
   on('turn.step', async function* ($, e, next) {
     const stream = next(e)
+    const key = `${e.agentId ?? ''}|${e.turnId}|${e.index}`
+    let mine = 0
     let shown = 0
-    for (;;) {
-      const piece = await stream.next()
-      if (piece.done) {
-        try {
-          streamed = 0
-          if (piece.value?.usage) sinceReading += spent(piece.value.usage)
-          await syncLimits($, settings)
-          await showLive($)
-        } catch {
-          // the step's result stands
-        }
-        return piece.value
-      }
-      const chunk = piece.value
-      if (settings.estimate && (chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input')) {
-        streamed += tokensOfText(chunk.kind === 'input' ? chunk.json : chunk.text)
-        if (streamed - shown >= LIVE_STEP) {
-          shown = streamed
+    try {
+      for (;;) {
+        const piece = await stream.next()
+        if (piece.done) {
+          // its usage replaces the count of its characters
+          streams.delete(key)
           try {
+            if (piece.value?.usage) {
+              sinceReading += spent(piece.value.usage)
+              turnSpent += spent(piece.value.usage)
+            }
+            await syncLimits($, settings)
             await showLive($)
           } catch {
-            // the stream goes on
+            // the step's result stands
+          }
+          return piece.value
+        }
+        const chunk = piece.value
+        const isCounted = settings.estimate || settings.showBurn
+        if (isCounted && (chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input')) {
+          mine += tokensOfText(chunk.kind === 'input' ? chunk.json : chunk.text)
+          streams.set(key, mine)
+          if (mine - shown >= LIVE_STEP) {
+            shown = mine
+            try {
+              await showLive($)
+            } catch {
+              // the stream goes on
+            }
           }
         }
+        yield chunk
       }
-      yield chunk
+    } finally {
+      // an aborted or failed request streams no more
+      streams.delete(key)
     }
   })
 
@@ -450,6 +476,9 @@ export const register: Register = (on, options) => {
       } else {
         const total = spent(e.usage) + pendingAgentTokens
         pendingAgentTokens = 0
+        // the turn is a bar now; what still streams (a background subagent) starts the next
+        turnSpent = 0
+        await update($, liveTurn, () => streamedNow())
         // with history, the store's chart, so every session's turns line up in it
         const chart = settings.history ? await storeBurn($, total) : null
         await update($, burn, all => chart ?? [...all, total].slice(-MAX_SAMPLES))
@@ -484,7 +513,9 @@ export const register: Register = (on, options) => {
     const pace = settings.showForecast ? forecast(t, await read($, fiveHour), now, five?.resetsAt) : ''
     const cost = settings.showCost && usd !== null ? dollars(usd) : ''
     const lastTurn = samples[samples.length - 1]
-    const today = settings.history ? todayTokens(await read($, days), now) : 0
+    const current = settings.showBurn ? await read($, liveTurn) : 0
+    // today's finished turns and the one under way
+    const today = settings.history ? todayTokens(await read($, days), now) + current : 0
     const average = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0
     const hasBars = settings.showFiveHour || settings.showWeekly
     const hasInfoRow = settings.showBurn || pace !== '' || cost !== ''
@@ -510,6 +541,7 @@ export const register: Register = (on, options) => {
     const { isRow, bar } = layout(columns, Math.max(shown.length, 1))
     const chartWidth = Math.max(Math.min(columns - LABEL_COLS - 60, MAX_SAMPLES), 8)
     const details = [
+      settings.showBurn && current > 0 ? t.thisTurn(tokens(current)) : '',
       settings.showBurn && lastTurn !== undefined ? t.lastTurn(tokens(lastTurn), tokens(Math.round(average))) : '',
       settings.showBurn && settings.history && today > 0 ? t.history.today(tokens(today)) : '',
       pace,
@@ -553,14 +585,16 @@ export const register: Register = (on, options) => {
         {hasInfoRow ? (
           <Box key="info">
             <Text weight="bold">{(settings.showBurn ? t.burn : t.info).padEnd(LABEL_COLS)}</Text>
-            {settings.showBurn && (samples.length > 0 || e.props.isWorking) ? (
+            {settings.showBurn && (samples.length > 0 || e.props.isWorking || current > 0) ? (
               <Client
                 key="burn-chart"
                 module="./burn.tsx"
-                props={{ samples, isWorking: e.props.isWorking, width: chartWidth, isAnimated: settings.animations }}
+                props={{ samples, current, isWorking: e.props.isWorking, width: chartWidth, isAnimated: settings.animations }}
               />
             ) : null}
-            {settings.showBurn && samples.length === 0 && !e.props.isWorking ? <Text dimColor>{t.noTurns}</Text> : null}
+            {settings.showBurn && samples.length === 0 && !e.props.isWorking && current === 0 ? (
+              <Text dimColor>{t.noTurns}</Text>
+            ) : null}
             <Text dimColor>{details.length > 0 ? ` ${details.join(' · ')}` : ''}</Text>
           </Box>
         ) : null}

@@ -47,6 +47,7 @@ declare module 'claude-code' {
       calibUsd: Record<string, number>
       liveUsd: number
       liveStream: number
+      liveTurn: number
     }
   }
 }

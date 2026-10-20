@@ -12,6 +12,7 @@ export type Strings = {
   resetsIn: (duration: string) => string
   resetsNow: string
   lastTurn: (last: string, average: string) => string
+  thisTurn: (tokens: string) => string
   paceOk: string
   paceEta: (duration: string) => string
   cost: (dollars: string) => string
@@ -60,6 +61,7 @@ export const STRINGS: Record<Language, Strings> = {
     resetsIn: d => `reset za ${d}`,
     resetsNow: 'reset teraz',
     lastTurn: (last, average) => `ostatnia ${last} tok · śr. ${average}`,
+    thisTurn: tok => `ta tura ${tok}`,
     paceOk: 'tempo OK do resetu',
     paceEta: d => `w tym tempie 100% za ~${d}`,
     cost: d => `koszt ${d}`,
@@ -108,6 +110,7 @@ export const STRINGS: Record<Language, Strings> = {
     resetsIn: d => `resets in ${d}`,
     resetsNow: 'resets now',
     lastTurn: (last, average) => `last ${last} tok · avg ${average}`,
+    thisTurn: tok => `this turn ${tok}`,
     paceOk: 'pace OK until reset',
     paceEta: d => `at this pace 100% in ~${d}`,
     cost: d => `cost ${d}`,

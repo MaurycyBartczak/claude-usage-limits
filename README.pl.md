@@ -11,7 +11,7 @@ Spalanie ▁▂▅▃█▂▁▄▆⠹  ostatnia 8.1k tok · śr. 5.3k · w tym
 
 - Paski z kolorami progów: zielony do 50%, żółty do 75%, pomarańczowy do 90%, czerwony powyżej.
 - Animacje: płynne wypełnianie, przebiegający połysk, pulsowanie powyżej 90%.
-- Wykres tokenów zużytych w każdej turze (z subagentami), animowany w trakcie pracy modelu.
+- Wykres tokenów zużytych w każdej turze (z subagentami), animowany w trakcie pracy modelu. Trwająca tura to słupek na żywo, który rośnie z każdym zapytaniem, także subagentów, więc wykres rusza się w trakcie ich pracy, a nie dopiero gdy odpowie główny agent (`ta tura 12.3k`).
 - Prognoza, kiedy przy obecnym tempie limit 5h dojdzie do 100%.
 - Odświeżanie na bieżąco: odczyt po każdym zapytaniu tury, współdzielony między sesjami; w trakcie pracy Claude'a przyciemniony odcinek `╍` i `~72%` pokazują szacowane zużycie do następnego odczytu (wyuczone z Twoich odczytów, więc to tylko szacunek). Subagenci sami nie odświeżają odczytu, więc w czasie ich pracy szacunek idzie za kosztem sesji, który liczy także ich zapytania.
 - Koszt sesji w $ (równowartość cen API).
