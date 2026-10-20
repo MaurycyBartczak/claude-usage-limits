@@ -37,11 +37,10 @@ const BurnChart: ClientModule<Props, Anim> = (props, surface) => {
 
   const frame = surface.state?.frame ?? 0
   const current = props.current ?? 0
-  const hasLive = props.isWorking || current > 0
-  const room = hasLive ? props.width - 2 : props.width
+  // the turn under way takes a cell, the working wave and spinner two more
+  const room = props.width - (current > 0 ? 1 : 0) - (props.isWorking ? 2 : 0)
   const samples = props.samples.slice(-Math.max(room, 1))
   const max = Math.max(...samples, current, 1)
-  const liveBar = current > 0 ? LEVELS[levelOf(current, max)] : LEVELS[LIVE_WAVE[frame % LIVE_WAVE.length] ?? 0]
 
   return (
     <Box>
@@ -54,11 +53,11 @@ const BurnChart: ClientModule<Props, Anim> = (props, surface) => {
             </Text>
           )
         })}
-        {current > 0 && !(props.isWorking && props.isAnimated) ? <Text color="claude">{liveBar}</Text> : null}
+        {current > 0 ? <Text color="claude">{LEVELS[levelOf(current, max)]}</Text> : null}
         {props.isWorking && !props.isAnimated ? <Text color="claude">…</Text> : null}
         {props.isWorking && props.isAnimated ? (
           <Text>
-            <Text color="claude">{liveBar}</Text>
+            <Text color="claude">{LEVELS[LIVE_WAVE[frame % LIVE_WAVE.length] ?? 0]}</Text>
             <Text color="claude" weight="bold">{SPINNER[frame % SPINNER.length]}</Text>
           </Text>
         ) : null}

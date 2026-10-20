@@ -94,3 +94,21 @@ test('subagents streaming side by side each keep their own count', async ($, on)
   await drain(second)
   expect(await bandText($)).not.toMatch(/ta tura/)
 })
+
+test('while working the wave and spinner animate beside the live bar', async ($, on) => {
+  const engine = session(on)
+  await $.session.start({ source: 'startup', cwd: '.' } as never)
+  await $.turn.complete({ turnId: 't0', reason: 'answer', usage: usage(4_000) } as never)
+  engine.tokens = 4_000
+  await drain(request($, 0, 'a1'))
+
+  const ui = await $.ui.mount(BAND)
+  const before = (await ui.find({ in: 'burn-chart' } as never)) as { text?: string } | undefined
+  await ui.advance(400)
+  const after = (await ui.find({ in: 'burn-chart' } as never)) as { text?: string } | undefined
+  await ui.unmount()
+  // the finished turn, the live bar at the same height, then wave and spinner
+  expect(before?.text).toMatch(/^██.⠋$/)
+  expect(after?.text).toMatch(/^██.[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
+  expect(after?.text).not.toBe(before?.text)
+})
