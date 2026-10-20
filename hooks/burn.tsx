@@ -2,7 +2,8 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { colorAt } from './colors'
 
-type Props = { samples: number[]; isWorking: boolean; width: number; isAnimated: boolean }
+// `current`: tokens of the turn under way, drawn as a live bar after the samples
+type Props = { samples: number[]; current?: number; isWorking: boolean; width: number; isAnimated: boolean }
 
 type Anim = { frame: number }
 
@@ -35,9 +36,12 @@ const BurnChart: ClientModule<Props, Anim> = (props, surface) => {
   }
 
   const frame = surface.state?.frame ?? 0
-  const room = props.isWorking ? props.width - 2 : props.width
+  const current = props.current ?? 0
+  const hasLive = props.isWorking || current > 0
+  const room = hasLive ? props.width - 2 : props.width
   const samples = props.samples.slice(-Math.max(room, 1))
-  const max = Math.max(...samples, 1)
+  const max = Math.max(...samples, current, 1)
+  const liveBar = current > 0 ? LEVELS[levelOf(current, max)] : LEVELS[LIVE_WAVE[frame % LIVE_WAVE.length] ?? 0]
 
   return (
     <Box>
@@ -50,10 +54,11 @@ const BurnChart: ClientModule<Props, Anim> = (props, surface) => {
             </Text>
           )
         })}
+        {current > 0 && !(props.isWorking && props.isAnimated) ? <Text color="claude">{liveBar}</Text> : null}
         {props.isWorking && !props.isAnimated ? <Text color="claude">…</Text> : null}
         {props.isWorking && props.isAnimated ? (
           <Text>
-            <Text color="claude">{LEVELS[LIVE_WAVE[frame % LIVE_WAVE.length] ?? 0]}</Text>
+            <Text color="claude">{liveBar}</Text>
             <Text color="claude" weight="bold">{SPINNER[frame % SPINNER.length]}</Text>
           </Text>
         ) : null}

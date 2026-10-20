@@ -11,7 +11,7 @@ Burn     ▁▂▅▃█▂▁▄▆⠹  last 8.1k tok · avg 5.3k · at this pa
 
 - Bars colored by threshold: green below 50%, yellow below 75%, orange below 90%, red above.
 - Animations: smooth fill, a shimmer sweep, a pulse above 90%.
-- A chart of tokens spent per turn (subagents included), animated while the model works.
+- A chart of tokens spent per turn (subagents included), animated while the model works. The turn under way is a live bar that grows with every request, the subagents' too, so the chart moves while subagents work, not only when the main agent answers (`this turn 12.3k`).
 - A forecast of when the 5-hour limit reaches 100% at the current pace.
 - Live updates: the reading is taken after every request of a turn and shared between sessions; while Claude works, a faint `╍` segment and `~72%` show the estimated use until the next reading (learned from your own readings, so only an estimate). Subagents never refresh the reading themselves, so while they work the estimate follows the session cost, which counts their requests too.
 - The session cost in $ (API-price equivalent).
