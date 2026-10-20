@@ -107,16 +107,91 @@ export function applyLedger(tasks: PlanTask[], ledger: Map<number, 'completed' |
   })
 }
 
-// Where the ledger for a plan file would be, from the plan's folder up.
-export function ledgerCandidates(planPath: string): string[] {
-  const path = planPath.replace(/\\/g, '/')
-  const name = (path.split('/').pop() ?? '').replace(/\.md$/i, '')
-  const parts = path.split('/').slice(0, -1)
+function slashed(path: string): string {
+  return path.replace(/\\/g, '/')
+}
+
+// A plan's workspace name: its file name without .md.
+export function planSlug(planPath: string): string {
+  return (slashed(planPath).split('/').pop() ?? '').replace(/\.md$/i, '')
+}
+
+function ancestors(dir: string, limit: number): string[] {
+  const parts = slashed(dir).replace(/\/+$/, '').split('/')
   const out: string[] = []
-  for (let i = parts.length; i > 0 && out.length < 6; i--) {
-    out.push(`${parts.slice(0, i).join('/')}/.superpowers/sdd/${name}/progress.md`)
+  for (let i = parts.length; i > 0 && out.length < limit; i--) {
+    const one = parts.slice(0, i).join('/')
+    if (one) out.push(one)
   }
   return out
+}
+
+// The folders that may hold a plan's workspace (<base>/<slug>/progress.md):
+// .superpowers/sdd and a plain sdd beside the plan's folders, then
+// .superpowers/sdd above the session's folders, since the workspace sits in
+// the repo the plan runs in (a worktree), not where the plan file lives.
+export function ledgerBases(planPath: string, sessionDirs: string[] = []): string[] {
+  const planDir = slashed(planPath).split('/').slice(0, -1).join('/')
+  const out: string[] = []
+  const add = (base: string) => {
+    if (!out.some(one => one.toLowerCase() === base.toLowerCase())) out.push(base)
+  }
+  for (const dir of ancestors(planDir, 6)) {
+    add(`${dir}/.superpowers/sdd`)
+    add(`${dir}/sdd`)
+  }
+  for (const sessionDir of sessionDirs) {
+    for (const dir of ancestors(sessionDir, 6)) add(`${dir}/.superpowers/sdd`)
+  }
+  return out
+}
+
+// A workspace folder of this plan: its slug, or the slug with the suffix
+// sdd-workspace adds when two plans share a file name.
+export function isWorkspaceOf(folder: string, planPath: string): boolean {
+  const name = folder.toLowerCase()
+  const slug = planSlug(planPath).toLowerCase()
+  return name === slug || name.startsWith(`${slug}-`)
+}
+
+// The plan a ledger names on its first line: "# SDD ledger — plan: <path>".
+export function ledgerPlan(text: string): string | null {
+  const first = text.split(/\r?\n/).find(line => line.trim() !== '') ?? ''
+  const found = /^#\s*SDD ledger\s*[—–-]+\s*plan:\s*(.+?)\s*$/i.exec(first.trim())
+  return found?.[1] ? found[1].replace(/^[`"']|[`"']$/g, '') : null
+}
+
+// Whether the ledger at ledgerPath is the given plan's: the plan its first
+// line names has the same file name, or, with no such line, the workspace
+// folder is the plan's.
+export function isLedgerOf(ledgerPath: string, text: string, planPath: string): boolean {
+  const named = ledgerPlan(text)
+  if (named) return planSlug(named).toLowerCase() === planSlug(planPath).toLowerCase()
+  const folder = slashed(ledgerPath).split('/').slice(-2, -1)[0] ?? ''
+  return isWorkspaceOf(folder, planPath)
+}
+
+export function isLedgerPath(path: string): boolean {
+  return /(^|\/)sdd\/[^/]+\/progress\.md$/i.test(slashed(path))
+}
+
+// Ledger paths a shell command names, as when it appends a line to one.
+export function ledgerPathsIn(command: string): string[] {
+  const found = command.match(/[^\s'"`<>|;&()]*sdd[\\/][^\s'"`<>|;&()\\/]+[\\/]progress\.md/gi) ?? []
+  return [...new Set(found)]
+}
+
+// Where the plan a ledger names may be: as given when absolute, else under
+// the repo the workspace is in (above .superpowers/sdd) or a folder above it.
+export function planCandidates(ledgerPath: string, named: string): string[] {
+  const plan = slashed(named)
+  if (/^([A-Za-z]:)?\//.test(plan)) return [plan]
+  const ledger = slashed(ledgerPath)
+  const marker = ledger.toLowerCase().lastIndexOf('/.superpowers/sdd/')
+  const roots = marker >= 0 ? [ledger.slice(0, marker)] : []
+  const ledgerDir = ledger.split('/').slice(0, -1).join('/')
+  for (const dir of ancestors(ledgerDir, 6)) if (!roots.includes(dir)) roots.push(dir)
+  return roots.map(root => `${root}/${plan.replace(/^\.\//, '')}`)
 }
 
 // What /zadania takes as a path: quotes and spaces around it dropped.

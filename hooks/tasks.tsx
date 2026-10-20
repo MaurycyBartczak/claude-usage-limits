@@ -3,7 +3,22 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { PlanFile, Task } from '../types'
 import type { Strings } from './i18n'
-import { applyLedger, ledgerCandidates, parseLedger, parsePlan, parsePlanFile, pathOf, taskStatus } from './plan'
+import {
+  applyLedger,
+  isLedgerOf,
+  isLedgerPath,
+  isWorkspaceOf,
+  ledgerBases,
+  ledgerPathsIn,
+  ledgerPlan,
+  parseLedger,
+  parsePlan,
+  parsePlanFile,
+  pathOf,
+  planCandidates,
+  planSlug,
+  taskStatus,
+} from './plan'
 
 const PANE = 'zadania'
 const WATCH_MS = 3000
@@ -20,12 +35,43 @@ export function filledCells(done: number, total: number, width: number): number 
   return total > 0 ? Math.round((done / total) * width) : 0
 }
 
-async function findLedger($: EngineInterface, planPath: string): Promise<string | null> {
-  for (const candidate of ledgerCandidates(planPath)) {
+async function isPlansLedger($: EngineInterface, ledgerPath: string, planPath: string): Promise<boolean> {
+  try {
+    if (!(await $.fs.exists(ledgerPath))) return false
+    return isLedgerOf(ledgerPath, await $.fs.read(ledgerPath), planPath)
+  } catch {
+    return false
+  }
+}
+
+async function sessionDirs($: EngineInterface): Promise<string[]> {
+  const dirs: string[] = []
+  for (const ask of [() => $.session.cwd(), () => $.session.root()]) {
     try {
-      if (await $.fs.exists(candidate)) return candidate
+      dirs.push(await ask())
     } catch {
-      // keep looking
+      // not known here
+    }
+  }
+  return dirs
+}
+
+// The plan's ledger: <base>/<slug>/progress.md, or a suffixed workspace of
+// the same plan, in each folder a workspace may sit in.
+async function findLedger($: EngineInterface, planPath: string): Promise<string | null> {
+  for (const base of ledgerBases(planPath, await sessionDirs($))) {
+    const exact = `${base}/${planSlug(planPath)}/progress.md`
+    if (await isPlansLedger($, exact, planPath)) return exact
+    let entries: { name: string; kind: string }[] = []
+    try {
+      entries = await $.fs.list(base)
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.kind !== 'dir' || !isWorkspaceOf(entry.name, planPath)) continue
+      const suffixed = `${base}/${entry.name}/progress.md`
+      if (suffixed !== exact && (await isPlansLedger($, suffixed, planPath))) return suffixed
     }
   }
   return null
@@ -40,12 +86,14 @@ async function mtimeOf($: EngineInterface, path: string | null): Promise<number>
   }
 }
 
-async function loadPlanFile($: EngineInterface, path: string): Promise<PlanFile> {
+// `knownLedger`: a ledger already found for this plan, kept while it exists.
+async function loadPlanFile($: EngineInterface, path: string, knownLedger?: string | null): Promise<PlanFile> {
   const text = await $.fs.read(path)
   const { mtimeMs } = await $.fs.stat(path)
   const parsed = parsePlanFile(text)
   // a plan run by subagent-driven-development keeps its progress in a ledger
-  const ledgerPath = await findLedger($, path)
+  const isKnownThere = knownLedger ? await $.fs.exists(knownLedger).catch(() => false) : false
+  const ledgerPath = isKnownThere && knownLedger ? knownLedger : await findLedger($, path)
   let tasks = parsed.tasks
   if (ledgerPath) {
     try {
@@ -67,7 +115,7 @@ async function refreshPlanFile($: EngineInterface): Promise<void> {
     const ledgerPath = loaded.ledgerPath ?? (await findLedger($, loaded.path))
     const ledgerMtimeMs = await mtimeOf($, ledgerPath)
     if (mtimeMs !== loaded.mtimeMs || ledgerPath !== (loaded.ledgerPath ?? null) || ledgerMtimeMs !== (loaded.ledgerMtimeMs ?? 0)) {
-      const fresh = await loadPlanFile($, loaded.path)
+      const fresh = await loadPlanFile($, loaded.path, ledgerPath)
       await update($, planFile, () => fresh)
     }
   } catch {
@@ -88,13 +136,40 @@ async function openPane($: EngineInterface, t: Strings): Promise<boolean> {
 
 // A markdown file Claude wrote, edited or read becomes the shown plan when it
 // looks like one: at least two headings with checkbox steps.
-async function adoptPlanFile($: EngineInterface, t: Strings, path: string): Promise<void> {
-  const loaded = await loadPlanFile($, path)
+async function adoptPlanFile($: EngineInterface, t: Strings, path: string, knownLedger?: string): Promise<void> {
+  const loaded = await loadPlanFile($, path, knownLedger)
   if (loaded.tasks.length < MIN_PLAN_TASKS) return
   const before = await read($, planFile)
   await update($, planFile, () => loaded)
   if (!before || !samePath(before.path, path)) {
     await openPane($, t)
+  }
+}
+
+// A ledger Claude writes, edits, reads or appends to: the shown plan follows
+// it when it is that plan's, else the plan it names is loaded, wherever the
+// workspace is (a worktree far from the plan file).
+async function adoptLedger($: EngineInterface, t: Strings, ledgerPath: string): Promise<void> {
+  let text: string
+  try {
+    text = await $.fs.read(ledgerPath)
+  } catch {
+    return
+  }
+  const loaded = await read($, planFile)
+  if (loaded && isLedgerOf(ledgerPath, text, loaded.path)) {
+    const fresh = await loadPlanFile($, loaded.path, ledgerPath)
+    await update($, planFile, () => fresh)
+    return
+  }
+  const named = ledgerPlan(text)
+  if (!named) return
+  for (const candidate of planCandidates(ledgerPath, named)) {
+    const isThere = await $.fs.exists(candidate).catch(() => false)
+    if (isThere) {
+      await adoptPlanFile($, t, candidate, ledgerPath).catch(() => undefined)
+      return
+    }
   }
 }
 
@@ -210,7 +285,22 @@ export function registerTasks(on: On, t: Strings): void {
     const ran = await next(e)
     const path = (e as { file_path?: unknown }).file_path
     if (ran.deny === undefined && !ran.isError && typeof path === 'string' && /\.md$/i.test(path)) {
-      await adoptPlanFile($, t, path)
+      if (isLedgerPath(path)) {
+        await adoptLedger($, t, path).catch(() => undefined)
+      } else {
+        await adoptPlanFile($, t, path)
+      }
+    }
+    return ran
+  }).catch(($, e, next) => next(e))
+
+  // A ledger line appended from the shell.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const ran = await next(e)
+    if (ran.deny === undefined && typeof e.command === 'string') {
+      for (const path of ledgerPathsIn(e.command)) {
+        await adoptLedger($, t, path).catch(() => undefined)
+      }
     }
     return ran
   }).catch(($, e, next) => next(e))
