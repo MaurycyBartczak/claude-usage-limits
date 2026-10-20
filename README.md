@@ -50,7 +50,7 @@ steps: 4/13
 
 - Tracks the tasks Claude writes as it works (`TodoWrite`, `TaskCreate`, `TaskUpdate`).
 - Loads a plan file by itself when Claude writes, edits or opens one: a `.md` with at least two headings holding `- [ ]` / `- [x]` steps. A task is done when all its steps are ticked.
-- Follows plans run by `subagent-driven-development`: their progress ledger (`.superpowers/sdd/<plan>/progress.md`) marks tasks done or in progress even though the plan's checkboxes stay unticked.
+- Follows plans run by `subagent-driven-development`: their progress ledger (`.superpowers/sdd/<plan>/progress.md`) marks tasks done or in progress even though the plan's checkboxes stay unticked. The ledger is found in the repo the session works in (a worktree too, wherever the plan file lives), above the plan's folder, in an `sdd/<plan>/` folder beside it, and in a suffixed workspace (`<plan>-<folder>`); one whose first line names another plan is skipped. When Claude writes, reads or appends to a ledger, the pane loads the plan it names.
 - Shows an approved plan from plan mode.
 - `/zadania path/to/plan.md` loads a plan by hand, `/zadania clear` forgets it. The pane follows the file as steps get ticked.
 - The pane docks beside the transcript in the fullscreen terminal layout (110+ columns), and opens above the prompt otherwise.
