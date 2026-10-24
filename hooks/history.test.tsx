@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import type { DayRecord } from '../types'
-import { addCost, addLimits, addTurn, dayKey, lastDays } from './history'
+import { addCost, addLimits, addTurn, dayKey, lastDays, mergeTrail } from './history'
 
 // Noon on Monday 19 October 2026, local time.
 const NOW = new Date(2026, 9, 19, 12).getTime()
@@ -132,4 +132,37 @@ test('day records', async () => {
   const shown = lastDays(days, NOW, 3)
   expect(shown.map(d => d.day)).toEqual(['2026-10-17', '2026-10-18', '2026-10-19'])
   expect(shown[0]?.turns).toBe(0)
+})
+
+test('the 5h trail merges readings, keeps the last hour, starts over on a reset', async () => {
+  const min = 60_000
+  const trail = [
+    { at: NOW - 90 * min, percent: 10 },
+    { at: NOW - 20 * min, percent: 30 },
+  ]
+  // the old sample falls out, a reading seen twice counts once
+  expect(mergeTrail(trail, { at: NOW, percent: 40 })).toEqual([
+    { at: NOW - 20 * min, percent: 30 },
+    { at: NOW, percent: 40 },
+  ])
+  expect(mergeTrail(trail, { at: NOW - 20 * min, percent: 30 })).toEqual([{ at: NOW - 20 * min, percent: 30 }])
+  // another session's older reading slots in by time
+  expect(mergeTrail([{ at: NOW, percent: 40 }], { at: NOW - 10 * min, percent: 35 })).toEqual([
+    { at: NOW - 10 * min, percent: 35 },
+    { at: NOW, percent: 40 },
+  ])
+  expect(mergeTrail(trail, { at: NOW, percent: 2 })).toEqual([{ at: NOW, percent: 2 }])
+})
+
+test('two sessions add to one 5h trail in the store', async ($, on) => {
+  const { store } = engine(on, { fiveHour: [{ at: NOW - 10 * 60_000, percent: 35 }] })
+  await $.session.measure({
+    context: { window: 200000 } as never,
+    rateLimits: [{ kind: 'five_hour', percentUsed: 40 }],
+    changed: ['rateLimits'],
+  })
+  expect(store.get('fiveHour')).toEqual([
+    { at: NOW - 10 * 60_000, percent: 35 },
+    { at: NOW, percent: 40 },
+  ])
 })
