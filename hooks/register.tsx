@@ -4,6 +4,7 @@ import type { EngineInterface, PluginOptions, Register, TurnUsage } from 'claude
 import type { LimitWindow, PercentSample } from '../types'
 import { alertsBetween } from './alerts'
 import type { Alert } from './alerts'
+import { tokens } from './format'
 import { STRINGS, languageOf } from './i18n'
 import type { Strings } from './i18n'
 import { registerTasks, startTasks } from './tasks'
@@ -12,6 +13,7 @@ import {
   addLimits,
   addTurn,
   loadHistory,
+  mergeTrail,
   registerHistory,
   startHistory,
   storeBurn,
@@ -104,12 +106,6 @@ function untilReset(t: Strings, resetsAt: string | undefined, now: number): stri
   return t.resetsIn(duration(ms))
 }
 
-function tokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
-}
-
 export function dollars(usd: number): string {
   return usd < 10 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(1)}`
 }
@@ -159,7 +155,13 @@ export function snapshot(limits: LimitWindow[], samples: PercentSample[], now: n
     return 'No rate-limit reading yet: it arrives with the first API response of the session, and stays empty on accounts without a Claude subscription.'
   }
   const lines = limits.map(w => {
-    const reset = w.resetsAt ? `, resets in ${duration(Date.parse(w.resetsAt) - now)} (${w.resetsAt})` : ''
+    const ms = w.resetsAt ? Date.parse(w.resetsAt) - now : NaN
+    // a reset time that does not parse is passed on as given
+    const reset = !w.resetsAt
+      ? ''
+      : Number.isFinite(ms)
+        ? `, resets in ${duration(ms)} (${w.resetsAt})`
+        : `, resets at ${w.resetsAt}`
     return `${WINDOW_NAMES[w.kind] ?? w.kind}: ${w.percentUsed}% used${reset}`
   })
 
@@ -219,14 +221,12 @@ async function remember($: EngineInterface, limits: LimitWindow[], isHistory: bo
   }
   const five = limits.find(w => w.kind === 'five_hour')
   if (five) {
-    await update($, fiveHour, all => {
-      // a drop means the window reset: start the trail over
-      const kept = all.filter(s => at - s.at <= RATE_WINDOW_MS && s.percent <= five.percentUsed)
-      return [...kept, { at, percent: five.percentUsed }].slice(-MAX_SAMPLES)
-    })
+    const sample = { at, percent: five.percentUsed }
+    // with history, the store's trail, so every session's readings line up in it
+    const trail = isHistory ? await storeFiveHour($, sample) : null
+    await update($, fiveHour, all => trail ?? mergeTrail(all, sample))
   }
   if (isHistory) {
-    if (five) await storeFiveHour($, await read($, fiveHour))
     await storeDays($, all => addLimits(all, at, limits))
   }
 }

@@ -3,12 +3,14 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { DayRecord, LimitWindow, PercentSample } from '../types'
 import { colorAt } from './colors'
+import { tokens } from './format'
 import type { Strings } from './i18n'
 
 const PANE = 'limity'
 const MAX_DAYS = 35
 const SHOWN_DAYS = 14
 const MAX_BURN = 40
+const MAX_TRAIL = 40
 const RATE_WINDOW_MS = 60 * 60_000
 
 const days = atom({ plugin: 'usage-limits', key: 'days' } as const, [])
@@ -75,11 +77,31 @@ export async function storeBurn($: EngineInterface, tokens: number): Promise<num
   }
 }
 
-export async function storeFiveHour($: EngineInterface, samples: PercentSample[]): Promise<void> {
+// The 5h trail with a reading added: in time order, a reading seen twice
+// once, the last hour only; a drop means the window reset, so the trail
+// starts over from it.
+export function mergeTrail(all: PercentSample[], sample: PercentSample): PercentSample[] {
+  const merged = [...all.filter(s => s.at !== sample.at), sample].sort((a, b) => a.at - b.at)
+  let start = 0
+  for (let i = 1; i < merged.length; i++) {
+    if ((merged[i]?.percent ?? 0) < (merged[i - 1]?.percent ?? 0)) start = i
+  }
+  const latest = merged[merged.length - 1]?.at ?? sample.at
+  return merged
+    .slice(start)
+    .filter(s => latest - s.at <= RATE_WINDOW_MS)
+    .slice(-MAX_TRAIL)
+}
+
+// The trail with this reading added to every session's, or null when the store failed.
+export async function storeFiveHour($: EngineInterface, sample: PercentSample): Promise<PercentSample[] | null> {
   try {
-    await $.store.set('fiveHour', samples)
+    const before = ((await $.store.get('fiveHour')) as PercentSample[] | undefined) ?? []
+    const after = mergeTrail(before, sample)
+    await $.store.set('fiveHour', after)
+    return after
   } catch {
-    // keep going without history
+    return null
   }
 }
 
@@ -99,12 +121,6 @@ export async function loadHistory($: EngineInterface): Promise<{ burn: number[];
 
 export async function startHistory($: EngineInterface, t: Strings): Promise<void> {
   await $.command.register({ name: 'limity', description: t.history.commandDescription })
-}
-
-function tokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
-  return String(n)
 }
 
 // The last `count` calendar days up to today, oldest first, empty ones included.
@@ -169,7 +185,7 @@ export function registerHistory(on: On, t: Strings, isEnabled: boolean): void {
               <Text dimColor>{'─'.repeat(barWidth - filled)}</Text>
               {d.turns > 0 ? (
                 <Text>
-                  {` ${tokens(d.tokens).padStart(5)}`}
+                  {` ${tokens(d.tokens, 0).padStart(5)}`}
                   <Text dimColor>{d.fiveMax !== null ? ` 5h ${String(Math.round(d.fiveMax)).padStart(3)}%` : '        '}</Text>
                   <Text dimColor>{d.weekMax !== null ? ` 7d ${String(Math.round(d.weekMax)).padStart(3)}%` : ''}</Text>
                   <Text dimColor>{d.cost > 0 ? ` $${d.cost.toFixed(2)}` : ''}</Text>
@@ -181,7 +197,7 @@ export function registerHistory(on: On, t: Strings, isEnabled: boolean): void {
           )
         })}
         <Text dimColor>
-          {t.history.weekTotal(tokens(weekTokens), tokens(Math.round(weekTokens / Math.max(activeDays, 1))), `$${weekCost.toFixed(2)}`)}
+          {t.history.weekTotal(tokens(weekTokens, 0), tokens(Math.round(weekTokens / Math.max(activeDays, 1)), 0),`$${weekCost.toFixed(2)}`)}
         </Text>
       </Box>
     )

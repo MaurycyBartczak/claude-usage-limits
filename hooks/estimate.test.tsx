@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import type { LimitWindow } from '../types'
-import { calibrate, estimateOf, tokensOfText } from './estimate'
+import { calibrate, estimateFrom, tokensOfText } from './estimate'
 
 const NOW = new Date(2026, 9, 19, 20).getTime()
 
@@ -120,6 +120,8 @@ test('calibration and estimate', async () => {
   // a reset teaches nothing
   expect(calibrate({}, five(80), five(2), 20_000)).toEqual({})
 
+  const estimateOf = (w: LimitWindow, calib: Record<string, number>, amount: number) =>
+    estimateFrom(w, [{ calib, amount }])
   expect(estimateOf(five(45)[0]!, { five_hour: 4000 }, 8000)).toBe(47)
   expect(estimateOf(five(45)[0]!, {}, 8000)).toBeNull()
   expect(estimateOf(five(45)[0]!, { five_hour: 4000 }, 0)).toBeNull()

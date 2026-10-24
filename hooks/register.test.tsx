@@ -5,7 +5,8 @@ import { alertsBetween } from './alerts'
 import { levelOf } from './burn'
 import { colorAt } from './colors'
 import { STRINGS } from './i18n'
-import { dollars, forecast } from './register'
+import { tokens } from './format'
+import { dollars, forecast, snapshot } from './register'
 
 const BAND_PROPS = {
   hasSurvey: false,
@@ -192,6 +193,38 @@ test('alerts between readings', async () => {
   expect(alertsBetween(five(60), five(70))).toEqual([])
   expect(alertsBetween(five(80), five(3))).toEqual([{ kind: 'reset', window: 'five_hour' }])
   expect(alertsBetween([], five(95))).toEqual([])
+
+  // a window used little resets too: its reset time moves on
+  const at = (p: number, resetsAt: string) => [{ kind: 'five_hour', percentUsed: p, resetsAt }]
+  expect(alertsBetween(at(6, '2026-10-19T15:00:00Z'), at(0, '2026-10-19T20:00:00Z'))).toEqual([
+    { kind: 'reset', window: 'five_hour' },
+  ])
+  // the same reset time, give or take the rounding, is the same window
+  expect(alertsBetween(at(6, '2026-10-19T15:00:00Z'), at(7, '2026-10-19T15:00:40Z'))).toEqual([])
+  // nothing was used: nothing to announce
+  expect(alertsBetween(at(0, '2026-10-19T15:00:00Z'), at(0, '2026-10-19T20:00:00Z'))).toEqual([])
+})
+
+test('snapshot for the usage_limits tool', async () => {
+  const now = Date.parse('2026-10-19T12:00:00Z')
+  const text = snapshot(
+    [
+      { kind: 'five_hour', percentUsed: 43, resetsAt: '2026-10-19T14:13:00Z' },
+      { kind: 'seven_day', percentUsed: 18, resetsAt: 'soon' },
+    ],
+    [],
+    now,
+  )
+  expect(text).toContain('5-hour session limit: 43% used, resets in 2h 13m (2026-10-19T14:13:00Z)')
+  expect(text).toContain('Weekly limit: 18% used, resets at soon')
+  expect(text).not.toContain('NaN')
+})
+
+test('token counts', async () => {
+  expect(tokens(800)).toBe('800')
+  expect(tokens(8100)).toBe('8.1k')
+  expect(tokens(412_400, 0)).toBe('412k')
+  expect(tokens(1_250_000)).toBe('1.3M')
 })
 
 test('threshold colors', async () => {

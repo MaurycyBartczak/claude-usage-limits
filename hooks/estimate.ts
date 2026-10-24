@@ -52,10 +52,6 @@ export function estimateFrom(window: LimitWindow, spends: Spend[]): number | nul
   return estimate - window.percentUsed >= 0.3 ? estimate : null
 }
 
-export function estimateOf(window: LimitWindow, calib: Calibration, liveTokens: number): number | null {
-  return estimateFrom(window, [{ calib, amount: liveTokens }])
-}
-
 // A streamed piece's rough token count: about four characters a token.
 export function tokensOfText(text: string): number {
   return Math.ceil(text.length / 4)
